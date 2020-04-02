@@ -1,0 +1,8 @@
+local_port=1086
+local_crt_file="./ca/ca.crt"
+local_key_file="./ca/ca.key"
+
+server="47.240.38.202"
+server_port=443
+server_crt_file="./ca/ca.crt"
+server_key_file="./ca/ca.key"
