@@ -1,7 +1,6 @@
 package main
 
 import (
-    "context"
     "crypto/rand"
     "crypto/tls"
     "encoding/binary"
@@ -12,7 +11,6 @@ import (
     "io"
     "net"
     "strconv"
-    "sync"
     "syscall"
     "time"
 )
@@ -60,34 +58,8 @@ func handle(conn net.Conn) {
     }
     defer remote.Close()
     logkit.Debugf("[handle] get remote %s", remote.RemoteAddr().String())
-    ctx, cancel := context.WithCancel(context.Background())
-    wg := new(sync.WaitGroup)
-    wg.Add(2)
-    go func() {
-        defer func() {
-            cancel()
-            wg.Done()
-        }()
-        n, err := connect.Copy(ctx, remote, conn)
-        if err != nil {
-            logkit.Errorf("[handle] %s --> %s copy error %s", conn.RemoteAddr().String(), remote.RemoteAddr().String(), err.Error())
-            return
-        }
-        logkit.Debugf("[handle] %s --> %s send %d byte", conn.RemoteAddr().String(), remote.RemoteAddr().String(), n)
-    }()
-    go func() {
-        defer func() {
-            cancel()
-            wg.Done()
-        }()
-        n, err := connect.Copy(ctx, conn, remote)
-        if err != nil {
-            logkit.Errorf("[handle] %s --> %s copy error %s", remote.RemoteAddr().String(), conn.RemoteAddr().String(), err.Error())
-            return
-        }
-        logkit.Debugf("[handle] %s --> %s send %d byte", remote.RemoteAddr().String(), conn.RemoteAddr().String(), n)
-    }()
-    wg.Wait()
+    
+    connect.Pipe(conn, remote)
     logkit.Infof("[handle] Client %s Connection Closed.....", conn.RemoteAddr().String())
 }
 

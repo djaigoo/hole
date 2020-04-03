@@ -1,7 +1,6 @@
 package main
 
 import (
-    "context"
     "crypto/rand"
     "crypto/tls"
     "encoding/binary"
@@ -18,7 +17,6 @@ import (
     "net/http"
     "strconv"
     "strings"
-    "sync"
     "time"
 )
 
@@ -146,10 +144,10 @@ func handle(conn net.Conn, addr string, config *tls.Config) {
     defer func() {
         err := conn.Close()
         if err != nil {
-            logkit.Errorf("[handle] close connect %s --> %s error %s", conn.LocalAddr().String(), conn.RemoteAddr().String(), err.Error())
+            logkit.Errorf("[handle] close connect %s --> %s error %s", conn.RemoteAddr().String(), conn.LocalAddr().String(), err.Error())
             return
         }
-        logkit.Warnf("[handle] connect close %s --> %s", conn.LocalAddr().String(), conn.RemoteAddr().String())
+        logkit.Warnf("[handle] connect close %s --> %s", conn.RemoteAddr().String(), conn.LocalAddr().String())
     }()
     logkit.Infof("[handle] get new request %s", conn.RemoteAddr())
     err := handShake(conn)
@@ -184,7 +182,6 @@ func handle(conn net.Conn, addr string, config *tls.Config) {
     }()
     
     logkit.Infof("[handle] client connect %s --> %s", conn.LocalAddr().String(), server.RemoteAddr().String())
-    // logkit.Debugf("%#v", server.ConnectionState())
     
     _, err = server.Write(rawAddr)
     if err != nil {
@@ -193,36 +190,7 @@ func handle(conn net.Conn, addr string, config *tls.Config) {
     }
     logkit.Infof("[handle] send rawAddr %#v", rawAddr)
     
-    ctx, cancel := context.WithCancel(context.Background())
-    wg := new(sync.WaitGroup)
-    wg.Add(2)
-    go func() {
-        defer func() {
-            cancel()
-            wg.Done()
-            logkit.Warnf("conn cancel context")
-        }()
-        n, err := connect.Copy(ctx, server, conn)
-        if err != nil {
-            logkit.Errorf("[handle] %s --> %s copy error %s", conn.RemoteAddr().String(), server.RemoteAddr().String(), err.Error())
-            return
-        }
-        logkit.Debugf("[handle] %s --> %s send %d byte", conn.RemoteAddr().String(), server.RemoteAddr().String(), n)
-    }()
-    go func() {
-        defer func() {
-            cancel()
-            wg.Done()
-            logkit.Warnf("server cancel context")
-        }()
-        n, err := connect.Copy(ctx, conn, server)
-        if err != nil {
-            logkit.Errorf("[handle] %s --> %s copy error %s", server.RemoteAddr().String(), conn.RemoteAddr().String(), err.Error())
-            return
-        }
-        logkit.Debugf("[handle] %s --> %s send %d byte", server.RemoteAddr().String(), conn.RemoteAddr().String(), n)
-    }()
-    wg.Wait()
+    connect.Pipe(conn, server)
     logkit.Debugf("[handle] close conn %s remote %s", conn.RemoteAddr().String(), server.RemoteAddr().String())
 }
 
