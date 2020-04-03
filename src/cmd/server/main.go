@@ -3,6 +3,7 @@ package main
 import (
     "flag"
     "github.com/djaigoo/hole/src/confs"
+    "github.com/djaigoo/hole/src/dao"
     "github.com/djaigoo/logkit"
     "github.com/soheilhy/cmux"
     "io/ioutil"
@@ -28,7 +29,12 @@ func init() {
 
 func main() {
     logkit.SingleFileLog("", "log", logkit.LevelDebug)
-    defer logkit.Exit()
+    defer func() {
+        // del redis data
+        dao.RedisDao.DelConnectKey()
+        
+        logkit.Exit()
+    }()
     
     conf, err := confs.ReadConfigFile(confpath)
     if err != nil {
