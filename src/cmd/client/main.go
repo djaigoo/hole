@@ -4,19 +4,22 @@ import (
     "context"
     "crypto/rand"
     "crypto/tls"
+    "encoding/binary"
     "flag"
     "fmt"
     "github.com/djaigoo/hole/src/code"
     "github.com/djaigoo/hole/src/confs"
     "github.com/djaigoo/hole/src/connect"
     "github.com/djaigoo/httpclient"
-    "github.com/pkg/errors"
     "github.com/djaigoo/logkit"
+    "github.com/pkg/errors"
     "io"
     "net"
+    "net/http"
     "strconv"
     "strings"
     "sync"
+    "time"
 )
 
 var (
@@ -51,13 +54,13 @@ func main() {
     if remoteAddr != "" {
         i := strings.Index(remoteAddr, ":")
         if i < 0 {
-            logkit.Errorf("invalid addr %s", remoteAddr)
+            logkit.Errorf("[main] invalid addr %s", remoteAddr)
             return
         }
         conf.Server = remoteAddr[:i]
         conf.ServerPort, err = strconv.Atoi(remoteAddr[i+1:])
         if err != nil {
-            logkit.Errorf("invalid addr %s", remoteAddr)
+            logkit.Errorf("[main] invalid addr %s", remoteAddr)
             return
         }
     }
@@ -70,7 +73,7 @@ func main() {
         level = logkit.LevelDebug
     }
     logkit.ConsoleLog(level)
-    logkit.Debugf("%#v", conf)
+    logkit.Debugf("[main] print conf %#v", conf)
     
     addr := conf.Server + ":" + strconv.Itoa(conf.ServerPort)
     // get ca
@@ -96,7 +99,7 @@ func main() {
         return
     }
     
-    logkit.Infof("start listen %d", conf.LocalPort)
+    logkit.Infof("[main] start listen %d", conf.LocalPort)
     for {
         conn, err := listener.Accept()
         if err != nil {
@@ -115,7 +118,8 @@ func getCA(addr string) (crtData []byte, keyData []byte, err error) {
         return nil, nil, errors.Errorf("not reading enough length %d", n)
     }
     key := fmt.Sprintf("%x", keybuf)
-    logkit.Debugf("send md5 key: %s", key)
+    http.DefaultClient.Timeout = 5 * time.Second
+    logkit.Debugf("[getCA] send md5 key: %s", key)
     cdata, err := httpclient.Get("http://"+addr+"/cfile").SetHeader("md5", key).Do().ToText()
     if err != nil {
         return
@@ -134,41 +138,60 @@ func getCA(addr string) (crtData []byte, keyData []byte, err error) {
     }
     keyData = code.AesDecrypt(string(kdata), []byte(key))
     
-    logkit.Infof("get ca success")
+    logkit.Infof("[getCA] get ca success")
     return
 }
 
 func handle(conn net.Conn, addr string, config *tls.Config) {
-    defer conn.Close()
-    logkit.Infof("get new request %s", conn.RemoteAddr())
+    defer func() {
+        err := conn.Close()
+        if err != nil {
+            logkit.Errorf("[handle] close connect %s --> %s error %s", conn.LocalAddr().String(), conn.RemoteAddr().String(), err.Error())
+            return
+        }
+        logkit.Warnf("[handle] connect close %s --> %s", conn.LocalAddr().String(), conn.RemoteAddr().String())
+    }()
+    logkit.Infof("[handle] get new request %s", conn.RemoteAddr())
     err := handShake(conn)
+    if err != nil {
+        logkit.Errorf("[handle] %s handshake error %s", conn.RemoteAddr().String(), err.Error())
+        return
+    }
     rawAddr, err := getRequest(conn)
     if err != nil {
-        logkit.Error(err.Error())
+        logkit.Errorf("[handle] %s get request error", conn.RemoteAddr().String(), err.Error())
         return
     }
     // 回复user sock连接建立
     _, err = conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x08, 0x43})
     if err != nil {
-        logkit.Errorf("send connection confirmation: %s", err.Error())
+        logkit.Errorf("[handle] send connection confirmation: %s", err.Error())
         return
     }
     
-    server, err := tls.Dial("tcp", addr, config)
+    server, err := tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", addr, config)
     if err != nil {
-        logkit.Errorf(err.Error())
+        logkit.Errorf("[handle] tls dial %s", err.Error())
         return
     }
-    defer server.Close()
-    logkit.Infof("Client Connect To %s", server.RemoteAddr().String())
+    defer func() {
+        err := server.Close()
+        if err != nil {
+            logkit.Errorf("[handle] close connect %s -> %s error %s", server.LocalAddr().String(), server.RemoteAddr().String(), err.Error())
+            return
+        }
+        logkit.Warnf("[handle] connect close %s --> %s", server.LocalAddr().String(), server.RemoteAddr().String())
+    }()
+    
+    logkit.Infof("[handle] client connect %s --> %s", conn.LocalAddr().String(), server.RemoteAddr().String())
     // logkit.Debugf("%#v", server.ConnectionState())
     
     _, err = server.Write(rawAddr)
     if err != nil {
-        logkit.Error(err.Error())
+        logkit.Errorf("[handle] %s --> %s server write raw addr error %s", conn.RemoteAddr().String(), server.RemoteAddr(), err.Error())
         return
     }
-    logkit.Infof("send rawAddr %#v", rawAddr)
+    logkit.Infof("[handle] send rawAddr %#v", rawAddr)
     
     ctx, cancel := context.WithCancel(context.Background())
     wg := new(sync.WaitGroup)
@@ -177,28 +200,30 @@ func handle(conn net.Conn, addr string, config *tls.Config) {
         defer func() {
             cancel()
             wg.Done()
+            logkit.Warnf("conn cancel context")
         }()
         n, err := connect.Copy(ctx, server, conn)
         if err != nil {
-            logkit.Error(err.Error())
+            logkit.Errorf("[handle] %s --> %s copy error %s", conn.RemoteAddr().String(), server.RemoteAddr().String(), err.Error())
             return
         }
-        logkit.Debugf("conn -> server send %d byte", n)
+        logkit.Debugf("[handle] %s --> %s send %d byte", conn.RemoteAddr().String(), server.RemoteAddr().String(), n)
     }()
     go func() {
         defer func() {
             cancel()
             wg.Done()
+            logkit.Warnf("server cancel context")
         }()
         n, err := connect.Copy(ctx, conn, server)
         if err != nil {
-            logkit.Error(err.Error())
+            logkit.Errorf("[handle] %s --> %s copy error %s", server.RemoteAddr().String(), conn.RemoteAddr().String(), err.Error())
             return
         }
-        logkit.Debugf("server -> conn send %d byte", n)
+        logkit.Debugf("[handle] %s --> %s send %d byte", server.RemoteAddr().String(), conn.RemoteAddr().String(), n)
     }()
     wg.Wait()
-    logkit.Debugf("close conn %s remote %s", conn.RemoteAddr().String(), server.RemoteAddr().String())
+    logkit.Debugf("[handle] close conn %s remote %s", conn.RemoteAddr().String(), server.RemoteAddr().String())
 }
 
 func handShake(conn net.Conn) (err error) {
@@ -283,5 +308,18 @@ func getRequest(conn net.Conn) (rawaddr []byte, err error) {
     }
     
     rawaddr = buf[IdType:reqLen]
+    
+    // print host
+    host := ""
+    port := strconv.Itoa(int(binary.BigEndian.Uint16(buf[reqLen-2:])))
+    switch rawaddr[0] {
+    case TypeIPv4:
+        host = (&net.IPAddr{IP: buf[IdType+1 : reqLen-2]}).String() + ":" + port
+    case TypeIPv6:
+        host = (&net.IPAddr{IP: buf[IdType+1 : reqLen-2]}).String() + ":" + port
+    case TypeDm:
+        host = string(buf[IdType+2:reqLen-2]) + ":" + port
+    }
+    logkit.Debugf("[getRequest] %s request host %s", conn.RemoteAddr(), host)
     return
 }

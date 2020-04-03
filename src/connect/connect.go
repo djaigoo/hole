@@ -2,12 +2,18 @@ package connect
 
 import (
     "context"
+    "github.com/djaigoo/logkit"
     "github.com/pkg/errors"
     "io"
+    "net"
     "time"
 )
 
-func Copy(ctx context.Context, dst io.Writer, src io.Reader) (written int64, err error) {
+var (
+    timeout = 10 * time.Second
+)
+
+func Copy(ctx context.Context, dst net.Conn, src net.Conn) (written int64, err error) {
     size := 32 * 1024
     buf := make([]byte, size)
 res:
@@ -15,17 +21,20 @@ res:
         select {
         case <-ctx.Done():
             break res
-        case <-time.After(10 * time.Minute):
+        case <-time.After(1 * time.Minute):
             // 设置读写超时
-            err = errors.New("Copy write time out")
+            err = errors.New("[Copy] Copy i/o timeout")
             break res
         default:
+            src.SetReadDeadline(time.Now().Add(timeout))
             nr, er := src.Read(buf)
             if nr > 0 {
+                dst.SetWriteDeadline(time.Now().Add(timeout))
                 nw, ew := dst.Write(buf[0:nr])
                 if nw > 0 {
                     written += int64(nw)
                 }
+                logkit.Debugf("[Copy] %s --> %s write %d byte", src.RemoteAddr().String(), dst.RemoteAddr().String(), nw)
                 if ew != nil {
                     err = ew
                     break res

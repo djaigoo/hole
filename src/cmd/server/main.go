@@ -3,8 +3,8 @@ package main
 import (
     "flag"
     "github.com/djaigoo/hole/src/confs"
-    "github.com/soheilhy/cmux"
     "github.com/djaigoo/logkit"
+    "github.com/soheilhy/cmux"
     "io/ioutil"
     "net"
     _ "net/http/pprof"
@@ -46,7 +46,7 @@ func main() {
         logkit.Error(err.Error())
         return
     }
-    logkit.Infof("crt len %d, key len %d", len(crtContent), len(keyContent))
+    logkit.Infof("[main] crt len %d, key len %d", len(crtContent), len(keyContent))
     
     listener, err := net.Listen("tcp", ":"+strconv.Itoa(conf.ServerPort))
     if err != nil {

@@ -52,14 +52,14 @@ func handle(conn net.Conn) {
     defer conn.Close()
     dao.RedisDao.AddConnect(conn.RemoteAddr().String())
     defer dao.RedisDao.DelConnect(conn.RemoteAddr().String())
-    logkit.Infof("Receive Connect Request From %s", conn.RemoteAddr().String())
-    remote, err := getRequest(conn)
+    logkit.Infof("[handle] Receive Connect Request From %s", conn.RemoteAddr().String())
+    remote, err := getRequestAndDial(conn)
     if err != nil {
         logkit.Error(err.Error())
         return
     }
     defer remote.Close()
-    logkit.Debugf("get remote %s", remote.RemoteAddr().String())
+    logkit.Debugf("[handle] get remote %s", remote.RemoteAddr().String())
     ctx, cancel := context.WithCancel(context.Background())
     wg := new(sync.WaitGroup)
     wg.Add(2)
@@ -70,10 +70,10 @@ func handle(conn net.Conn) {
         }()
         n, err := connect.Copy(ctx, remote, conn)
         if err != nil {
-            logkit.Error(err.Error())
+            logkit.Errorf("[handle] %s --> %s copy error %s", conn.RemoteAddr().String(), remote.RemoteAddr().String(), err.Error())
             return
         }
-        logkit.Debugf("conn -> remote send %d byte", n)
+        logkit.Debugf("[handle] %s --> %s send %d byte", conn.RemoteAddr().String(), remote.RemoteAddr().String(), n)
     }()
     go func() {
         defer func() {
@@ -82,16 +82,16 @@ func handle(conn net.Conn) {
         }()
         n, err := connect.Copy(ctx, conn, remote)
         if err != nil {
-            logkit.Error(err.Error())
+            logkit.Errorf("[handle] %s --> %s copy error %s", remote.RemoteAddr().String(), conn.RemoteAddr().String(), err.Error())
             return
         }
-        logkit.Debugf("remote -> conn send %d byte", n)
+        logkit.Debugf("[handle] %s --> %s send %d byte", remote.RemoteAddr().String(), conn.RemoteAddr().String(), n)
     }()
     wg.Wait()
-    logkit.Infof("Client %s Connection Closed.....", conn.RemoteAddr().String())
+    logkit.Infof("[handle] Client %s Connection Closed.....", conn.RemoteAddr().String())
 }
 
-func getRequest(conn net.Conn) (remote net.Conn, err error) {
+func getRequestAndDial(conn net.Conn) (remote net.Conn, err error) {
     // buf size should at least have the same size with the largest possible
     // request size (when addrType is 3, domain name has at most 256 bytes)
     // 1(addrType) + 1(lenByte) + 255(max length address) + 2(port) + 10(hmac-sha1)
@@ -138,16 +138,16 @@ func getRequest(conn net.Conn) (remote net.Conn, err error) {
     // parse port
     port := binary.BigEndian.Uint16(buf[reqEnd-2 : reqEnd])
     host = net.JoinHostPort(host, strconv.Itoa(int(port)))
-    logkit.Debugf("remote addr %s", host)
+    logkit.Debugf("[getRequestAndDial] remote addr %s", host)
     
     remote, err = net.Dial("tcp", host)
     if err != nil {
         if ne, ok := err.(*net.OpError); ok && (ne.Err == syscall.EMFILE || ne.Err == syscall.ENFILE) {
             // log too many open file error
             // EMFILE is process reaches open file limits, ENFILE is system limit
-            logkit.Errorf("dial error: %s", err.Error())
+            logkit.Errorf("[getRequestAndDial] dial error: %s", err.Error())
         } else {
-            logkit.Errorf("error connecting to: host %s, error %s", host, err.Error())
+            logkit.Errorf("[getRequestAndDial] error connecting to: host %s, error %s", host, err.Error())
         }
         return
     }
