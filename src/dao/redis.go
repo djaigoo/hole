@@ -7,6 +7,7 @@ type IRedisDao interface {
     DelConnect(addr string) error
     GetConnects() ([]string, error)
     GetConnectNum() (int64, error)
+    DelConnectKey() error
 }
 
 var RedisDao IRedisDao = &RedisNilClient{}
@@ -28,6 +29,10 @@ func (r *RedisNilClient) GetConnects() ([]string, error) {
 
 func (r *RedisNilClient) GetConnectNum() (int64, error) {
     return 0, nil
+}
+
+func (r *RedisNilClient) DelConnectKey() error {
+    return nil
 }
 
 type RedisClient redis.Client
@@ -63,4 +68,9 @@ func (rc *RedisClient) GetConnects() ([]string, error) {
 func (rc *RedisClient) GetConnectNum() (int64, error) {
     key := genConnectsKey()
     return rc.SCard(key).Result()
+}
+
+func (rc *RedisClient) DelConnectKey() error {
+    key := genConnectsKey()
+    return rc.Del(key).Err()
 }
