@@ -5,7 +5,7 @@ go 1.13
 require (
 	github.com/BurntSushi/toml v0.3.1
 	github.com/djaigoo/httpclient v0.0.0-20200323020232-9b432a4b1321
-	github.com/djaigoo/logkit v0.0.3
+	github.com/djaigoo/logkit v0.0.4
 	github.com/go-redis/redis v6.15.7+incompatible
 	github.com/kr/pretty v0.1.0 // indirect
 	github.com/onsi/ginkgo v1.12.0 // indirect
