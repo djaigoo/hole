@@ -15,8 +15,11 @@ import (
     "io"
     "net"
     "net/http"
+    "os"
+    "os/signal"
     "strconv"
     "strings"
+    "syscall"
     "time"
 )
 
@@ -96,17 +99,27 @@ func main() {
         logkit.Error(err.Error())
         return
     }
-    
-    logkit.Infof("[main] start listen %d", conf.LocalPort)
-    for {
-        conn, err := listener.Accept()
-        if err != nil {
-            logkit.Error(err.Error())
-            continue
+    go func() {
+        logkit.Infof("[main] start listen %d", conf.LocalPort)
+        for {
+            conn, err := listener.Accept()
+            if err != nil {
+                logkit.Error(err.Error())
+                continue
+            }
+            go handle(conn, addr, config)
         }
-        go handle(conn, addr, config)
-    }
+    }()
     
+    sign := make(chan os.Signal)
+    signal.Notify(sign, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGKILL)
+    logkit.Infof("client quit with signal %d", <-sign)
+    err = listener.Close()
+    if err != nil {
+        logkit.Errorf("[main] Close listener error %s", err.Error())
+        return
+    }
+    logkit.Infof("[main] Close listener success")
 }
 
 func getCA(addr string) (crtData []byte, keyData []byte, err error) {

@@ -50,28 +50,38 @@ func Pipe(conn1, conn2 net.Conn) (n1, n2 int64, c1Close, c2Close bool, err error
     wg.Add(2)
     go func() {
         defer func() {
+            err = conn2.Close()
+            if err != nil {
+                logkit.Errorf("[Pipe] close %s --> %s error %s", conn1.RemoteAddr().String(), conn2.RemoteAddr().String(), err.Error())
+                return
+            }
+            c2Close = true
             wg.Done()
         }()
         n1, err = Copy(conn2, conn1)
-        c1Close = true
         if err != nil {
             logkit.Errorf("[Pipe] %s --> %s write error %s", conn1.RemoteAddr().String(), conn2.RemoteAddr().String(), err.Error())
             return
         }
-        logkit.Debugf("[Pipe] %s --> %s write over %d byte", conn1.RemoteAddr().String(), conn2.RemoteAddr().String(), n1)
+        logkit.Infof("[Pipe] %s --> %s write over %d byte", conn1.RemoteAddr().String(), conn2.RemoteAddr().String(), n1)
     }()
     
     go func() {
         defer func() {
+            err = conn1.Close()
+            if err != nil {
+                logkit.Errorf("[Pipe] close %s --> %s error %s", conn1.RemoteAddr().String(), conn2.RemoteAddr().String(), err.Error())
+                return
+            }
+            c1Close = true
             wg.Done()
         }()
         n2, err = Copy(conn1, conn2)
-        c2Close = true
         if err != nil {
             logkit.Errorf("[Pipe] %s --> %s write error %s", conn2.RemoteAddr().String(), conn1.RemoteAddr().String(), err.Error())
             return
         }
-        logkit.Debugf("[Pipe] %s --> %s write over %d byte", conn2.RemoteAddr().String(), conn1.RemoteAddr().String(), n2)
+        logkit.Infof("[Pipe] %s --> %s write over %d byte", conn2.RemoteAddr().String(), conn1.RemoteAddr().String(), n2)
     }()
     wg.Wait()
     return
