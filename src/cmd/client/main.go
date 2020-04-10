@@ -105,7 +105,7 @@ func main() {
             conn, err := listener.Accept()
             if err != nil {
                 logkit.Error(err.Error())
-                continue
+                return
             }
             go handle(conn, addr, config)
         }
@@ -150,6 +150,9 @@ func getCA(addr string) (crtData []byte, keyData []byte, err error) {
     keyData = code.AesDecrypt(string(kdata), []byte(key))
     
     logkit.Infof("[getCA] get ca success")
+    
+    // close all default client
+    http.DefaultClient.CloseIdleConnections()
     return
 }
 

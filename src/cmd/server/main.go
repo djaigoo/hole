@@ -28,7 +28,7 @@ func init() {
 }
 
 func main() {
-    logkit.SingleFileLog("", "log", logkit.LevelDebug)
+    // logkit.SingleFileLog("", "log", logkit.LevelDebug)
     defer func() {
         // del redis data
         dao.RedisDao.DelConnectKey()
