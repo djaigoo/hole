@@ -141,13 +141,16 @@ func getCA(addr string) (crtData []byte, keyData []byte, err error) {
 }
 
 func handle(conn net.Conn, addr string, config *tls.Config) {
+    connClosed := false
     defer func() {
-        err := conn.Close()
-        if err != nil {
-            logkit.Errorf("[handle] close connect %s --> %s error %s", conn.RemoteAddr().String(), conn.LocalAddr().String(), err.Error())
-            return
+        if !connClosed {
+            err := conn.Close()
+            if err != nil {
+                logkit.Errorf("[handle] close local connect %s --> %s error %s", conn.RemoteAddr().String(), conn.LocalAddr().String(), err.Error())
+                return
+            }
+            logkit.Warnf("[handle] local connect close %s --> %s", conn.RemoteAddr().String(), conn.LocalAddr().String())
         }
-        logkit.Warnf("[handle] connect close %s --> %s", conn.RemoteAddr().String(), conn.LocalAddr().String())
     }()
     logkit.Infof("[handle] get new request %s", conn.RemoteAddr())
     err := handShake(conn)
@@ -172,13 +175,16 @@ func handle(conn net.Conn, addr string, config *tls.Config) {
         logkit.Errorf("[handle] tls dial %s", err.Error())
         return
     }
+    serverClosed := false
     defer func() {
-        err := server.Close()
-        if err != nil {
-            logkit.Errorf("[handle] close connect %s -> %s error %s", server.LocalAddr().String(), server.RemoteAddr().String(), err.Error())
-            return
+        if !serverClosed {
+            err := server.Close()
+            if err != nil {
+                logkit.Errorf("[handle] close remote connect %s -> %s error %s", server.LocalAddr().String(), server.RemoteAddr().String(), err.Error())
+                return
+            }
+            logkit.Warnf("[handle] remote connect close %s --> %s", server.LocalAddr().String(), server.RemoteAddr().String())
         }
-        logkit.Warnf("[handle] connect close %s --> %s", server.LocalAddr().String(), server.RemoteAddr().String())
     }()
     
     logkit.Infof("[handle] client connect %s --> %s", conn.LocalAddr().String(), server.RemoteAddr().String())
@@ -190,7 +196,11 @@ func handle(conn net.Conn, addr string, config *tls.Config) {
     }
     logkit.Infof("[handle] send rawAddr %#v", rawAddr)
     
-    connect.Pipe(conn, server)
+    _, _, connClosed, serverClosed, err = connect.Pipe(conn, server)
+    if err != nil {
+        logkit.Errorf("[handle] Pipe %s --> %s error %s", conn.RemoteAddr().String(), server.RemoteAddr().String(), err.Error())
+        return
+    }
     logkit.Debugf("[handle] close conn %s remote %s", conn.RemoteAddr().String(), server.RemoteAddr().String())
 }
 
