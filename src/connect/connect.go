@@ -6,43 +6,9 @@ import (
     "io"
     "net"
     "sync"
-    "time"
 )
 
-var (
-    timeout = 3 * time.Second
-)
-
-func Copy(dst net.Conn, src net.Conn) (written int64, err error) {
-    size := 16 * 1024
-    buf := make([]byte, size)
-    for {
-        nr, er := src.Read(buf)
-        if nr > 0 {
-            nw, ew := dst.Write(buf[0:nr])
-            if nw > 0 {
-                written += int64(nw)
-            }
-            logkit.Debugf("[Copy] %s --> %s write %d byte", src.RemoteAddr().String(), dst.RemoteAddr().String(), nw)
-            if ew != nil {
-                err = ew
-                return
-            }
-            if nr != nw {
-                err = io.ErrShortWrite
-                return
-            }
-        }
-        if er != nil {
-            if er == io.EOF {
-                return
-            }
-            err = er
-            return
-        }
-    }
-}
-
+// Pipe 完成两个连接数据互通
 func Pipe(conn1, conn2 net.Conn) (n1, n2 int64, err error) {
     wg := new(sync.WaitGroup)
     wg.Add(2)
@@ -54,7 +20,7 @@ func Pipe(conn1, conn2 net.Conn) (n1, n2 int64, err error) {
             }
             wg.Done()
         }()
-        n1, err = Copy(conn2, conn1)
+        n1, err = io.Copy(conn2, conn1)
         if err != nil {
             logkit.Errorf("[Pipe] %s --> %s write error %s", conn1.RemoteAddr().String(), conn2.RemoteAddr().String(), err.Error())
             return
@@ -70,7 +36,7 @@ func Pipe(conn1, conn2 net.Conn) (n1, n2 int64, err error) {
             }
             wg.Done()
         }()
-        n2, err = Copy(conn1, conn2)
+        n2, err = io.Copy(conn1, conn2)
         if err != nil {
             logkit.Errorf("[Pipe] %s --> %s write error %s", conn2.RemoteAddr().String(), conn1.RemoteAddr().String(), err.Error())
             return
