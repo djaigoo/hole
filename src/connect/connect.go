@@ -14,10 +14,11 @@ func Pipe(conn1, conn2 net.Conn) (n1, n2 int64, err error) {
     wg.Add(2)
     go func() {
         defer func() {
-            err = CloseWrite(conn2)
-            if err != nil {
-                logkit.Errorf("close write conn2 error %s", err.Error())
-            }
+            // err = CloseWrite(conn2)
+            // if err != nil {
+            //     logkit.Errorf("[Pipe] close write conn2 error %s", err.Error())
+            // }
+            CloseWrite(conn2)
             wg.Done()
         }()
         n1, err = io.Copy(conn2, conn1)
@@ -30,10 +31,11 @@ func Pipe(conn1, conn2 net.Conn) (n1, n2 int64, err error) {
     
     go func() {
         defer func() {
-            err = CloseWrite(conn1)
-            if err != nil {
-                logkit.Errorf("close write conn1 error %s", err.Error())
-            }
+            // err = CloseWrite(conn1)
+            // if err != nil {
+            //     logkit.Errorf("[Pipe] close write conn1 error %s", err.Error())
+            // }
+            CloseWrite(conn1)
             wg.Done()
         }()
         n2, err = io.Copy(conn1, conn2)
@@ -51,15 +53,15 @@ func Pipe(conn1, conn2 net.Conn) (n1, n2 int64, err error) {
 func CloseWrite(conn net.Conn) error {
     switch conn.(type) {
     case *net.TCPConn:
-        logkit.Warnf("close write tcp conn")
+        logkit.Warnf("[CloseWrite] close write tcp conn %s --> %s", conn.LocalAddr().String(), conn.RemoteAddr().String())
         tconn := conn.(*net.TCPConn)
         return tconn.CloseWrite()
     case *tls.Conn:
-        logkit.Warnf("close write tls conn")
+        logkit.Warnf("[CloseWrite] close write tls conn %s --> %s", conn.LocalAddr().String(), conn.RemoteAddr().String())
         tconn := conn.(*tls.Conn)
         return tconn.CloseWrite()
     default:
-        logkit.Warnf("invalid conn type %#v", conn)
+        logkit.Warnf("[CloseWrite] invalid conn %s --> %s type %#v", conn.LocalAddr().String(), conn.RemoteAddr().String(), conn)
         return conn.Close()
     }
 }

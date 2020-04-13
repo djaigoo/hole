@@ -47,13 +47,7 @@ func tlsServer(listener net.Listener) {
 }
 
 func handle(conn net.Conn) {
-    connClose, remoteClose := false, false
-    defer func() {
-        if connClose {
-            return
-        }
-        conn.Close()
-    }()
+    defer conn.Close()
     dao.RedisDao.AddConnect(conn.RemoteAddr().String())
     defer dao.RedisDao.DelConnect(conn.RemoteAddr().String())
     logkit.Infof("[handle] Receive Connect Request From %s", conn.RemoteAddr().String())
@@ -62,12 +56,7 @@ func handle(conn net.Conn) {
         logkit.Error(err.Error())
         return
     }
-    defer func() {
-        if remoteClose {
-            return
-        }
-        remote.Close()
-    }()
+    defer remote.Close()
     logkit.Debugf("[handle] get remote %s", remote.RemoteAddr().String())
     
     _, _, err = connect.Pipe(conn, remote)
