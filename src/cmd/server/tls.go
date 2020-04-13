@@ -70,7 +70,7 @@ func handle(conn net.Conn) {
     }()
     logkit.Debugf("[handle] get remote %s", remote.RemoteAddr().String())
     
-    _, _, connClose, remoteClose, err = connect.Pipe(conn, remote)
+    _, _, err = connect.Pipe(conn, remote)
     if err != nil {
         logkit.Errorf("[handle] %s --> %s Pipe error %s", conn.RemoteAddr().String(), remote.RemoteAddr().String(), err.Error())
         return

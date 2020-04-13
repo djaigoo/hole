@@ -1,11 +1,10 @@
 package connect
 
 import (
-    "context"
+    "crypto/tls"
     "github.com/djaigoo/logkit"
     "io"
     "net"
-    "strings"
     "sync"
     "time"
 )
@@ -14,58 +13,48 @@ var (
     timeout = 3 * time.Second
 )
 
-func Copy(ctx context.Context, dst net.Conn, src net.Conn) (written int64, err error) {
+func Copy(dst net.Conn, src net.Conn) (written int64, err error) {
     size := 16 * 1024
     buf := make([]byte, size)
     for {
-        select {
-        case <-ctx.Done():
-            logkit.Warnf("[Copy] context done")
-            return
-        default:
-            src.SetReadDeadline(time.Now().Add(timeout))
-            nr, er := src.Read(buf)
-            if nr > 0 {
-                nw, ew := dst.Write(buf[0:nr])
-                if nw > 0 {
-                    written += int64(nw)
-                }
-                logkit.Debugf("[Copy] %s --> %s write %d byte", src.RemoteAddr().String(), dst.RemoteAddr().String(), nw)
-                if ew != nil {
-                    err = ew
-                    return
-                }
-                if nr != nw {
-                    err = io.ErrShortWrite
-                    return
-                }
+        nr, er := src.Read(buf)
+        if nr > 0 {
+            nw, ew := dst.Write(buf[0:nr])
+            if nw > 0 {
+                written += int64(nw)
             }
-            if er != nil {
-                if er == io.EOF {
-                    return
-                }
-                if e, ok := er.(*net.OpError); ok {
-                    if strings.Contains(e.Error(), "i/o timeout") {
-                        continue
-                    }
-                }
-                err = er
+            logkit.Debugf("[Copy] %s --> %s write %d byte", src.RemoteAddr().String(), dst.RemoteAddr().String(), nw)
+            if ew != nil {
+                err = ew
                 return
             }
+            if nr != nw {
+                err = io.ErrShortWrite
+                return
+            }
+        }
+        if er != nil {
+            if er == io.EOF {
+                return
+            }
+            err = er
+            return
         }
     }
 }
 
-func Pipe(conn1, conn2 net.Conn) (n1, n2 int64, c1Close, c2Close bool, err error) {
-    ctx, cancel := context.WithCancel(context.Background())
+func Pipe(conn1, conn2 net.Conn) (n1, n2 int64, err error) {
     wg := new(sync.WaitGroup)
     wg.Add(2)
     go func() {
         defer func() {
-            cancel()
+            err = CloseWrite(conn2)
+            if err != nil {
+                logkit.Errorf("close write conn2 error %s", err.Error())
+            }
             wg.Done()
         }()
-        n1, err = Copy(ctx, conn2, conn1)
+        n1, err = Copy(conn2, conn1)
         if err != nil {
             logkit.Errorf("[Pipe] %s --> %s write error %s", conn1.RemoteAddr().String(), conn2.RemoteAddr().String(), err.Error())
             return
@@ -75,10 +64,13 @@ func Pipe(conn1, conn2 net.Conn) (n1, n2 int64, c1Close, c2Close bool, err error
     
     go func() {
         defer func() {
-            cancel()
+            err = CloseWrite(conn1)
+            if err != nil {
+                logkit.Errorf("close write conn1 error %s", err.Error())
+            }
             wg.Done()
         }()
-        n2, err = Copy(ctx, conn1, conn2)
+        n2, err = Copy(conn1, conn2)
         if err != nil {
             logkit.Errorf("[Pipe] %s --> %s write error %s", conn2.RemoteAddr().String(), conn1.RemoteAddr().String(), err.Error())
             return
@@ -88,4 +80,20 @@ func Pipe(conn1, conn2 net.Conn) (n1, n2 int64, c1Close, c2Close bool, err error
     wg.Wait()
     logkit.Infof("[Pipe] OVER")
     return
+}
+
+func CloseWrite(conn net.Conn) error {
+    switch conn.(type) {
+    case *net.TCPConn:
+        logkit.Warnf("close write tcp conn")
+        tconn := conn.(*net.TCPConn)
+        return tconn.CloseWrite()
+    case *tls.Conn:
+        logkit.Warnf("close write tls conn")
+        tconn := conn.(*tls.Conn)
+        return tconn.CloseWrite()
+    default:
+        logkit.Warnf("invalid conn type %#v", conn)
+        return conn.Close()
+    }
 }

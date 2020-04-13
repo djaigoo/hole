@@ -99,6 +99,14 @@ func main() {
         logkit.Error(err.Error())
         return
     }
+    defer func() {
+        err = listener.Close()
+        if err != nil {
+            logkit.Errorf("[main] Close listener error %s", err.Error())
+            return
+        }
+        logkit.Infof("[main] Close listener success")
+    }()
     go func() {
         logkit.Infof("[main] start listen %d", conf.LocalPort)
         for {
@@ -114,12 +122,6 @@ func main() {
     sign := make(chan os.Signal)
     signal.Notify(sign, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGKILL)
     logkit.Infof("client quit with signal %d", <-sign)
-    err = listener.Close()
-    if err != nil {
-        logkit.Errorf("[main] Close listener error %s", err.Error())
-        return
-    }
-    logkit.Infof("[main] Close listener success")
 }
 
 func getCA(addr string) (crtData []byte, keyData []byte, err error) {
@@ -212,7 +214,7 @@ func handle(conn net.Conn, addr string, config *tls.Config) {
     }
     logkit.Infof("[handle] send rawAddr %#v", rawAddr)
     
-    _, _, connClosed, serverClosed, err = connect.Pipe(conn, server)
+    _, _, err = connect.Pipe(conn, server)
     if err != nil {
         logkit.Errorf("[handle] Pipe %s --> %s error %s", conn.RemoteAddr().String(), server.RemoteAddr().String(), err.Error())
         return
