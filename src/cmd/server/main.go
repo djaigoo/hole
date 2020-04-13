@@ -59,6 +59,8 @@ func main() {
         logkit.Errorf(err.Error())
         return
     }
+    defer listener.Close()
+    
     cm := cmux.New(listener)
     tlsListener := cm.Match(cmux.TLS())
     httpListener := cm.Match(cmux.HTTP1())

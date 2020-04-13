@@ -15,7 +15,7 @@ var (
 )
 
 func Copy(ctx context.Context, dst net.Conn, src net.Conn) (written int64, err error) {
-    size := 32 * 1024
+    size := 16 * 1024
     buf := make([]byte, size)
     for {
         select {
