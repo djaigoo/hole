@@ -9,17 +9,15 @@ import (
     "github.com/djaigoo/hole/src/code"
     "github.com/djaigoo/hole/src/confs"
     "github.com/djaigoo/hole/src/connect"
+    "github.com/djaigoo/hole/src/utils"
     "github.com/djaigoo/httpclient"
     "github.com/djaigoo/logkit"
     "github.com/pkg/errors"
     "io"
     "net"
     "net/http"
-    "os"
-    "os/signal"
     "strconv"
     "strings"
-    "syscall"
     "time"
 )
 
@@ -119,9 +117,7 @@ func main() {
         }
     }()
     
-    sign := make(chan os.Signal)
-    signal.Notify(sign, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGKILL)
-    logkit.Infof("client quit with signal %d", <-sign)
+    logkit.Infof("client quit with signal %d", utils.Signal())
 }
 
 func getCA(addr string) (crtData []byte, keyData []byte, err error) {

@@ -4,15 +4,13 @@ import (
     "flag"
     "github.com/djaigoo/hole/src/confs"
     "github.com/djaigoo/hole/src/dao"
+    "github.com/djaigoo/hole/src/utils"
     "github.com/djaigoo/logkit"
     "github.com/soheilhy/cmux"
     "io/ioutil"
     "net"
     _ "net/http/pprof"
-    "os"
-    "os/signal"
     "strconv"
-    "syscall"
     "time"
 )
 
@@ -75,7 +73,5 @@ func main() {
     }
     
     logkit.Infof("start sever")
-    sign := make(chan os.Signal)
-    signal.Notify(sign, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGKILL)
-    logkit.Infof("server quit with signal %d", <-sign)
+    logkit.Infof("server quit with signal %d", utils.Signal())
 }
