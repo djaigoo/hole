@@ -15,6 +15,14 @@ func errReport(name string) {
     }
 }
 
+func openPProf() {
+    http.HandleFunc("/debug/pprof/", Index)
+    http.HandleFunc("/debug/pprof/cmdline", Cmdline)
+    http.HandleFunc("/debug/pprof/profile", Profile)
+    http.HandleFunc("/debug/pprof/symbol", Symbol)
+    http.HandleFunc("/debug/pprof/trace", Trace)
+}
+
 func adminServer(port int, addr, password string) {
     logkit.Infof("start admin server")
     dao.RedisDao = dao.NewRedisDao(addr, password)

@@ -16,9 +16,7 @@ type Conf struct {
     AdminPort     int    `toml:"admin_port"`
     RedisAddr     string `toml:"redis_addr"`
     RedisPassword string `toml:"redis_password"`
-    
-    Pprof     bool `toml:"pprof"`
-    PprofPort int  `toml:"pprof_port"`
+    Pprof         bool   `toml:"pprof"`
     
     Debug bool `toml:"debug"`
 }

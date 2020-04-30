@@ -9,7 +9,6 @@ import (
     "github.com/soheilhy/cmux"
     "io/ioutil"
     "net"
-    _ "net/http/pprof"
     "strconv"
     "time"
 )
@@ -69,6 +68,9 @@ func main() {
     go cm.Serve()
     
     if conf.Admin {
+        if conf.Pprof {
+            openPProf()
+        }
         go adminServer(conf.AdminPort, conf.RedisAddr, conf.RedisPassword)
     }
     
