@@ -24,7 +24,7 @@ func openPProf() {
 }
 
 func adminServer(port int, addr, password string) {
-    logkit.Infof("start admin server")
+    logkit.Infof("[adminServer] start admin server")
     dao.RedisDao = dao.NewRedisDao(addr, password)
     http.HandleFunc("/connects", connects)
     err := http.ListenAndServe(":"+strconv.Itoa(port), nil)

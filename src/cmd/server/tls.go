@@ -32,15 +32,11 @@ func tlsServer(listener net.Listener) {
     // The Reader must be safe for use by multiple goroutines.
     tlsConfig.Rand = rand.Reader
     l := tls.NewListener(listener, tlsConfig)
-    if err != nil {
-        logkit.Error(err.Error())
-        return
-    }
     for {
         conn, err := l.Accept()
         if err != nil {
-            logkit.Error(err.Error())
-            continue
+            logkit.Errorf("[tlsServer] accept error %s", err.Error())
+            break
         }
         go handle(conn)
     }

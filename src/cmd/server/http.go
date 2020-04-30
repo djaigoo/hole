@@ -23,20 +23,20 @@ func hello(w http.ResponseWriter, r *http.Request) {
 }
 
 func getCrtFile(w http.ResponseWriter, r *http.Request) {
-    logkit.Infof("get crt file %s", r.RemoteAddr)
+    logkit.Infof("[getCrtFile] get crt file %s", r.RemoteAddr)
     key := r.Header.Get("md5")
     if len(key) != 32 {
-        logkit.Errorf("get crt file invalid md5 length %d md5 %s", len(key), key)
+        logkit.Errorf("[getCrtFile] get crt file invalid md5 length %d md5 %s", len(key), key)
         return
     }
     w.Write([]byte(code.AesEncrypt(crtContent, []byte(key))))
 }
 
 func getKeyFile(w http.ResponseWriter, r *http.Request) {
-    logkit.Infof("get key file %s", r.RemoteAddr)
+    logkit.Infof("[getCrtFile] get key file %s", r.RemoteAddr)
     key := r.Header.Get("md5")
     if len(key) != 32 {
-        logkit.Errorf("get crt file invalid md5 length %d md5 %s", len(key), key)
+        logkit.Errorf("[getCrtFile] get crt file invalid md5 length %d md5 %s", len(key), key)
         return
     }
     w.Write([]byte(code.AesEncrypt(keyContent, []byte(key))))

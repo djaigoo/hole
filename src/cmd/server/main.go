@@ -74,6 +74,6 @@ func main() {
         go adminServer(conf.AdminPort, conf.RedisAddr, conf.RedisPassword)
     }
     
-    logkit.Infof("start sever")
-    logkit.Infof("server quit with signal %d", utils.Signal())
+    logkit.Infof("[main] start sever")
+    logkit.Infof("[main] server quit with signal %d", utils.Signal())
 }
