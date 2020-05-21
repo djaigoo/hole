@@ -12,7 +12,6 @@ require (
 	github.com/onsi/gomega v1.9.0 // indirect
 	github.com/pkg/errors v0.9.1
 	github.com/soheilhy/cmux v0.1.4
-	golang.org/x/net v0.0.0-20200301022130-244492dfa37a // indirect
 	google.golang.org/grpc v1.26.0 // indirect
 	gopkg.in/check.v1 v1.0.0-20180628173108-788fd7840127 // indirect
 )

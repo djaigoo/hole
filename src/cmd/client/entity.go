@@ -8,6 +8,7 @@ import (
 const (
     socksVer5       = 5
     socksCmdConnect = 1
+    socksCmdUDP     = 3
 )
 
 var (

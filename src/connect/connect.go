@@ -19,6 +19,7 @@ func Pipe(conn1, conn2 net.Conn) (n1, n2 int64, err error) {
             //     logkit.Errorf("[Pipe] close write conn2 error %s", err.Error())
             // }
             CloseWrite(conn2)
+            // conn2.SetReadDeadline(time.Now())
             wg.Done()
         }()
         n1, err = io.Copy(conn2, conn1)
@@ -36,6 +37,7 @@ func Pipe(conn1, conn2 net.Conn) (n1, n2 int64, err error) {
             //     logkit.Errorf("[Pipe] close write conn1 error %s", err.Error())
             // }
             CloseWrite(conn1)
+            // conn1.SetReadDeadline(time.Now())
             wg.Done()
         }()
         n2, err = io.Copy(conn1, conn2)

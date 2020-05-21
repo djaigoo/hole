@@ -6,6 +6,7 @@ import (
     "encoding/binary"
     "github.com/djaigoo/hole/src/connect"
     "github.com/djaigoo/hole/src/dao"
+    "github.com/djaigoo/hole/src/socks5"
     "github.com/djaigoo/logkit"
     "github.com/pkg/errors"
     "io"
@@ -47,12 +48,53 @@ func handle(conn net.Conn) {
     dao.RedisDao.AddConnect(conn.RemoteAddr().String())
     defer dao.RedisDao.DelConnect(conn.RemoteAddr().String())
     logkit.Infof("[handle] Receive Connect Request From %s", conn.RemoteAddr().String())
-    remote, err := getRequestAndDial(conn)
+    // remote, err := getRequestAndDial(conn)
+    
+    // defer remote.Close()
+    
+    attr, err := socks5.GetAttrByConn(conn)
     if err != nil {
         logkit.Error(err.Error())
         return
     }
-    defer remote.Close()
+    info, _ := attr.Marshal()
+    logkit.Infof("[handle] GetAttrByConn attr:%s info:%#v", attr.GetHost(), info)
+    
+    var remote net.Conn
+    
+    if attr.Atyp == socks5.Connect {
+        host := attr.GetHost()
+        remote, err = net.DialTimeout("tcp", host, 10*time.Second)
+        if err != nil {
+            if ne, ok := err.(*net.OpError); ok && (ne.Err == syscall.EMFILE || ne.Err == syscall.ENFILE) {
+                // log too many open file error
+                // EMFILE is process reaches open file limits, ENFILE is system limit
+                logkit.Errorf("[handle] dial error: %s", err.Error())
+            } else {
+                logkit.Errorf("[handle] error connecting to: host %s, error %s", host, err.Error())
+            }
+            return
+        }
+    } else if attr.Atyp == socks5.Udp {
+        host := attr.GetHost()
+        udpAddr, err := net.ResolveUDPAddr("udp", host)
+        if err != nil {
+            logkit.Errorf("[handle] ResolveUDPAddr host:%s error: %s", host, err.Error())
+            return
+        }
+        udpConn, err := net.DialUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0}, udpAddr)
+        if err != nil {
+            logkit.Errorf("[handle] dial udp error: %s", err.Error())
+            return
+        }
+        logkit.Infof("[handle] get udp conn %s --> %s", udpConn.LocalAddr().String(), udpConn.RemoteAddr().String())
+        remote = udpConn
+    }
+    
+    if remote == nil {
+        return
+    }
+    
     logkit.Debugf("[handle] get remote %s", remote.RemoteAddr().String())
     
     _, _, err = connect.Pipe(conn, remote)

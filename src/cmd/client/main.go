@@ -9,6 +9,7 @@ import (
     "github.com/djaigoo/hole/src/code"
     "github.com/djaigoo/hole/src/confs"
     "github.com/djaigoo/hole/src/connect"
+    "github.com/djaigoo/hole/src/socks5"
     "github.com/djaigoo/hole/src/utils"
     "github.com/djaigoo/httpclient"
     "github.com/djaigoo/logkit"
@@ -164,22 +165,32 @@ func handle(conn net.Conn, addr string, config *tls.Config) {
         logkit.Warnf("[handle] local connect close %s --> %s", conn.RemoteAddr().String(), conn.LocalAddr().String())
     }()
     logkit.Infof("[handle] get new request %s", conn.RemoteAddr())
-    err := handShake(conn)
+    
+    attr := &socks5.Attr{}
+    err := attr.Handshake(conn)
     if err != nil {
-        logkit.Errorf("[handle] %s handshake error %s", conn.RemoteAddr().String(), err.Error())
+        logkit.Errorf("[handle] attr handshake error %s", conn.RemoteAddr())
         return
     }
-    rawAddr, err := getRequest(conn)
-    if err != nil {
-        logkit.Errorf("[handle] %s get request error", conn.RemoteAddr().String(), err.Error())
-        return
-    }
-    // 回复user sock连接建立
-    _, err = conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x08, 0x43})
-    if err != nil {
-        logkit.Errorf("[handle] send connection confirmation: %s", err.Error())
-        return
-    }
+    
+    rawAddr, _ := attr.Marshal()
+    
+    // err := handShake(conn)
+    // if err != nil {
+    //     logkit.Errorf("[handle] %s handshake error %s", conn.RemoteAddr().String(), err.Error())
+    //     return
+    // }
+    // rawAddr, err := getRequest(conn)
+    // if err != nil {
+    //     logkit.Errorf("[handle] %s get request error %s", conn.RemoteAddr().String(), err.Error())
+    //     return
+    // }
+    // // 回复user sock连接建立
+    // _, err = conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x08, 0x43})
+    // if err != nil {
+    //     logkit.Errorf("[handle] send connection confirmation: %s", err.Error())
+    //     return
+    // }
     
     server, err := tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", addr, config)
     if err != nil {
@@ -266,6 +277,7 @@ func getRequest(conn net.Conn) (rawaddr []byte, err error) {
     }
     if buf[IdCmd] != socksCmdConnect {
         err = errCmd
+        logkit.Errorf("[getRequest] invalid cmd %d", buf[IdCmd])
         return
     }
     
