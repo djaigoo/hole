@@ -58,11 +58,11 @@ func handle(conn net.Conn) {
         return
     }
     info, _ := attr.Marshal()
-    logkit.Infof("[handle] GetAttrByConn attr:%s info:%#v", attr.GetHost(), info)
+    logkit.Infof("[handle] GetAttrByConn attr: %s info:%#v", attr.GetHost(), info)
     
     var remote net.Conn
     
-    if attr.Atyp == socks5.Connect {
+    if attr.Command == socks5.Connect {
         host := attr.GetHost()
         remote, err = net.DialTimeout("tcp", host, 10*time.Second)
         if err != nil {
@@ -75,7 +75,8 @@ func handle(conn net.Conn) {
             }
             return
         }
-    } else if attr.Atyp == socks5.Udp {
+        logkit.Debugf("[handle] get tcp conn %s --> %s", remote.LocalAddr().String(), remote.RemoteAddr().String())
+    } else if attr.Command == socks5.Udp {
         host := attr.GetHost()
         udpAddr, err := net.ResolveUDPAddr("udp", host)
         if err != nil {
@@ -87,7 +88,7 @@ func handle(conn net.Conn) {
             logkit.Errorf("[handle] dial udp error: %s", err.Error())
             return
         }
-        logkit.Infof("[handle] get udp conn %s --> %s", udpConn.LocalAddr().String(), udpConn.RemoteAddr().String())
+        logkit.Debugf("[handle] get udp conn %s --> %s", udpConn.LocalAddr().String(), udpConn.RemoteAddr().String())
         remote = udpConn
     }
     

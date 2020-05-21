@@ -62,8 +62,12 @@ func CloseWrite(conn net.Conn) error {
         logkit.Warnf("[CloseWrite] close write tls conn %s --> %s", conn.LocalAddr().String(), conn.RemoteAddr().String())
         tconn := conn.(*tls.Conn)
         return tconn.CloseWrite()
+    case *net.UDPConn:
+        logkit.Warnf("[CloseWrite] close write udp conn %s --> %s", conn.LocalAddr().String(), conn.RemoteAddr().String())
+        tconn := conn.(*net.UDPConn)
+        return tconn.Close()
     default:
-        logkit.Warnf("[CloseWrite] invalid conn %s --> %s type %#v", conn.LocalAddr().String(), conn.RemoteAddr().String(), conn)
+        logkit.Errorf("[CloseWrite] invalid conn %s --> %s type %#v", conn.LocalAddr().String(), conn.RemoteAddr().String(), conn)
         return conn.Close()
     }
 }

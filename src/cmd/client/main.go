@@ -169,28 +169,11 @@ func handle(conn net.Conn, addr string, config *tls.Config) {
     attr := &socks5.Attr{}
     err := attr.Handshake(conn)
     if err != nil {
-        logkit.Errorf("[handle] attr handshake error %s", conn.RemoteAddr())
+        logkit.Errorf("[handle] attr handshake remote:%s error %s", conn.RemoteAddr().String(), err.Error())
         return
     }
     
     rawAddr, _ := attr.Marshal()
-    
-    // err := handShake(conn)
-    // if err != nil {
-    //     logkit.Errorf("[handle] %s handshake error %s", conn.RemoteAddr().String(), err.Error())
-    //     return
-    // }
-    // rawAddr, err := getRequest(conn)
-    // if err != nil {
-    //     logkit.Errorf("[handle] %s get request error %s", conn.RemoteAddr().String(), err.Error())
-    //     return
-    // }
-    // // 回复user sock连接建立
-    // _, err = conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x08, 0x43})
-    // if err != nil {
-    //     logkit.Errorf("[handle] send connection confirmation: %s", err.Error())
-    //     return
-    // }
     
     server, err := tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", addr, config)
     if err != nil {
