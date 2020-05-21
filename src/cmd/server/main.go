@@ -25,7 +25,7 @@ func init() {
 }
 
 func main() {
-    // logkit.SingleFileLog("", "log", logkit.LevelDebug)
+    logkit.SingleFileLog("", "log", logkit.LevelDebug)
     defer func() {
         // del redis data
         dao.RedisDao.DelConnectKey()
@@ -66,28 +66,6 @@ func main() {
     go httpServer(httpListener)
     time.Sleep(100 * time.Millisecond)
     go cm.Serve()
-    
-    // // start udp
-    // if true {
-    //     go func() {
-    //         uconn, err := net.ListenUDP("udp", &net.UDPAddr{
-    //             IP:   []byte{0, 0, 0, 0},
-    //             Port: 1900,
-    //             Zone: "",
-    //         })
-    //         if err != nil {
-    //             logkit.Errorf("[main] listenUDP error %s", err.Error())
-    //             return
-    //         }
-    //         data := make([]byte, 4096)
-    //         n, err := uconn.Read(data)
-    //         if err != nil {
-    //             logkit.Errorf("[main] uconn Read error %s", err.Error())
-    //             return
-    //         }
-    //         logkit.Infof("get udp data %#v", data[:n])
-    //     }()
-    // }
     
     if conf.Admin {
         if conf.Pprof {
