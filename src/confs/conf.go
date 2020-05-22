@@ -3,6 +3,7 @@ package confs
 import "github.com/BurntSushi/toml"
 
 type Conf struct {
+    StartUDP     bool   `toml:"start_udp"`
     LocalPort    int    `toml:"local_port"`
     LocalCrtFile string `toml:"local_crt_file"`
     LocalKeyFile string `toml:"local_key_file"`

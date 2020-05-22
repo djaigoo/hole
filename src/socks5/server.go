@@ -140,12 +140,12 @@ func (a *Attr) step4(conn net.Conn) error {
     if err != nil {
         return err
     }
-    if a.Atyp == Connect {
-        logkit.Warnf("send connect %s --> %s", conn.RemoteAddr().String(), conn.LocalAddr().String())
+    if a.Command == Connect {
+        logkit.Warnf("[Handshake] send connect %s --> %s", conn.RemoteAddr().String(), conn.LocalAddr().String())
         _, err = conn.Write([]byte{VER, Succeeded, 0, IPv4, 127, 0, 0, 1, 0x04, 0x3e})
     } else {
-        logkit.Warnf("send udp %s --> %s", conn.RemoteAddr().String(), conn.LocalAddr().String())
-        _, err = conn.Write([]byte{VER, Succeeded, 0, IPv4, 127, 0, 0, 1, 0x07, 0x6c})
+        logkit.Warnf("[Handshake] send udp %s --> %s", conn.RemoteAddr().String(), conn.LocalAddr().String())
+        _, err = conn.Write([]byte{VER, Succeeded, 0, IPv4, 127, 0, 0, 1, 0x04, 0x3e})
     }
     return err
 }

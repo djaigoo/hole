@@ -27,6 +27,7 @@ var (
     listenPort int
     remoteAddr string
     debug      bool
+    udp        bool
 )
 
 func init() {
@@ -34,6 +35,7 @@ func init() {
     flag.IntVar(&listenPort, "port", 1086, "本地监听地址")
     flag.StringVar(&remoteAddr, "addr", "", "远端服务器地址")
     flag.BoolVar(&debug, "debug", false, "是否打印调试日志")
+    flag.BoolVar(&udp, "udp", false, "是否启动udp")
     flag.Parse()
 }
 
@@ -117,8 +119,112 @@ func main() {
             go handle(conn, addr, config)
         }
     }()
+    if udp {
+        go func() {
+            port := conf.LocalPort
+            logkit.Infof("[main] start listen udp port %d", port)
+            ulistener, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: port})
+            if err != nil {
+                logkit.Infof("[main] listenUDP error %s", err.Error())
+                return
+            }
+            defer ulistener.Close()
+            
+            data := make([]byte, 2048)
+            for {
+                n, addr, err := ulistener.ReadFromUDP(data)
+                if err != nil {
+                    logkit.Errorf("udp read from error %s", err.Error())
+                    return
+                }
+                // logkit.Infof("get udp remote %s msg %#v", addr.String(), data[:n])
+                if n < 3 {
+                    return
+                }
+                msg := make([]byte, n)
+                copy(msg, data[:n])
+                go handleUDP(addr, msg)
+            }
+        }()
+    }
     
     logkit.Infof("client quit with signal %d", utils.Signal())
+}
+
+func handleUDP(addr *net.UDPAddr, data []byte) {
+    n := len(data)
+    site := 0
+    site += 2
+    flag := data[site]
+    flag = flag
+    site++
+    atyp := data[site]
+    site++
+    var host string
+    switch atyp {
+    case socks5.IPv4:
+        if n < site+6 {
+            return
+        }
+        addr := data[site : site+4]
+        site += 4
+        port := data[site : site+2]
+        site += 2
+        host = net.IP(addr).String() + ":" + strconv.Itoa(int(binary.BigEndian.Uint16(port)))
+    case socks5.Domain:
+        if n < site+1 {
+            return
+        }
+        l := data[site]
+        site++
+        addr := data[site : site+int(l)]
+        site += int(l)
+        port := data[site : site+2]
+        site += 2
+        host = string(addr) + ":" + strconv.Itoa(int(binary.BigEndian.Uint16(port)))
+    case socks5.IPv6:
+        if n < site+18 {
+            return
+        }
+        addr := data[site : site+16]
+        site += 16
+        port := data[site : site+2]
+        site += 2
+        host = net.IP(addr).String() + ":" + strconv.Itoa(int(binary.BigEndian.Uint16(port)))
+    }
+    
+    logkit.Infof("dial to host %s", host)
+    raddr, err := net.ResolveUDPAddr("udp", host)
+    if err != nil {
+        logkit.Errorf("%s", err.Error())
+        return
+    }
+    uconn, err := net.DialUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0}, raddr)
+    if err != nil {
+        logkit.Errorf("%s", err.Error())
+        return
+    }
+    defer uconn.Close()
+    uconn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+    n, err = uconn.Write(data[site:])
+    if err != nil {
+        logkit.Errorf("%s", err.Error())
+        return
+    }
+    msg := make([]byte, 2048)
+    uconn.SetReadDeadline(time.Now().Add(5 * time.Second))
+    n, err = uconn.Read(msg)
+    if err != nil {
+        logkit.Errorf("%s", err.Error())
+        return
+    }
+    logkit.Infof("write to udp %s --> %s %d byte", addr.String(), raddr.String(), n)
+    uconn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+    _, err = uconn.WriteToUDP(append(data[:site], msg[:n]...), addr)
+    if err != nil {
+        logkit.Errorf("%s", err.Error())
+        return
+    }
 }
 
 func getCA(addr string) (crtData []byte, keyData []byte, err error) {

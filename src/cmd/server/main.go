@@ -17,6 +17,8 @@ var (
     confpath   string
     crtContent []byte
     keyContent []byte
+    
+    conf *confs.Conf
 )
 
 func init() {
@@ -33,7 +35,8 @@ func main() {
         logkit.Exit()
     }()
     
-    conf, err := confs.ReadConfigFile(confpath)
+    var err error
+    conf, err = confs.ReadConfigFile(confpath)
     if err != nil {
         logkit.Error(err.Error())
         return

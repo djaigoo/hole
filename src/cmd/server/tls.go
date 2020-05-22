@@ -77,6 +77,10 @@ func handle(conn net.Conn) {
         }
         logkit.Debugf("[handle] get tcp conn %s --> %s", remote.LocalAddr().String(), remote.RemoteAddr().String())
     } else if attr.Command == socks5.Udp {
+        if !conf.StartUDP {
+            // TODO UDP is not supported temporarily
+            return
+        }
         host := attr.GetHost()
         udpAddr, err := net.ResolveUDPAddr("udp", host)
         if err != nil {
@@ -90,6 +94,8 @@ func handle(conn net.Conn) {
         }
         logkit.Debugf("[handle] get udp conn %s --> %s", udpConn.LocalAddr().String(), udpConn.RemoteAddr().String())
         remote = udpConn
+    } else {
+        return
     }
     
     if remote == nil {
