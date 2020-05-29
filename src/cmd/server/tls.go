@@ -3,15 +3,13 @@ package main
 import (
     "crypto/rand"
     "crypto/tls"
-    "encoding/binary"
-    "github.com/djaigoo/hole/src/connect"
     "github.com/djaigoo/hole/src/dao"
+    "github.com/djaigoo/hole/src/pool"
     "github.com/djaigoo/hole/src/socks5"
     "github.com/djaigoo/logkit"
-    "github.com/pkg/errors"
     "io"
     "net"
-    "strconv"
+    "sync"
     "syscall"
     "time"
 )
@@ -39,22 +37,40 @@ func tlsServer(listener net.Listener) {
             logkit.Errorf("[tlsServer] accept error %s", err.Error())
             break
         }
-        go handle(conn)
+        hc := pool.NewConn(conn)
+        go handle(hc)
     }
 }
 
 func handle(conn net.Conn) {
-    defer conn.Close()
+    close := true
+    defer func() {
+        if close {
+            conn.Close()
+        }
+    }()
     dao.RedisDao.AddConnect(conn.RemoteAddr().String())
     defer dao.RedisDao.DelConnect(conn.RemoteAddr().String())
     logkit.Infof("[handle] Receive Connect Request From %s", conn.RemoteAddr().String())
-    // remote, err := getRequestAndDial(conn)
-    
-    // defer remote.Close()
     
     attr, err := socks5.GetAttrByConn(conn)
     if err != nil {
-        logkit.Error(err.Error())
+        if err != pool.ErrInterrupt {
+            logkit.Errorf("[handle] GetAttrByConn %s", err.Error())
+            return
+        }
+        // interrupt waiting ...
+        for err == pool.ErrInterrupt {
+            time.Sleep(500 * time.Millisecond)
+            attr, err = socks5.GetAttrByConn(conn)
+            if pool.CheckErr(err) {
+                logkit.Errorf("[handle] GetAttrByConn %s", err.Error())
+                return
+            }
+        }
+    }
+    if attr == nil {
+        logkit.Errorf("attr is nil")
         return
     }
     info, _ := attr.Marshal()
@@ -104,7 +120,7 @@ func handle(conn net.Conn) {
     
     logkit.Debugf("[handle] get remote %s", remote.RemoteAddr().String())
     
-    _, _, err = connect.Pipe(conn, remote)
+    _, _, close, err = ServerCopy(remote, conn)
     if err != nil {
         logkit.Errorf("[handle] %s --> %s Pipe error %s", conn.RemoteAddr().String(), remote.RemoteAddr().String(), err.Error())
         return
@@ -112,65 +128,63 @@ func handle(conn net.Conn) {
     logkit.Infof("[handle] Client %s Connection Closed.....", conn.RemoteAddr().String())
 }
 
-func getRequestAndDial(conn net.Conn) (remote net.Conn, err error) {
-    // buf size should at least have the same size with the largest possible
-    // request size (when addrType is 3, domain name has at most 256 bytes)
-    // 1(addrType) + 1(lenByte) + 255(max length address) + 2(port) + 10(hmac-sha1)
-    buf := make([]byte, 269)
-    // read till we get possible domain length field
-    if _, err = io.ReadFull(conn, buf[:IdType+1]); err != nil {
-        return
-    }
-    
-    var reqStart, reqEnd int
-    addrType := buf[IdType]
-    switch addrType & AddrMask {
-    case TypeIPv4:
-        reqStart, reqEnd = IdIP0, IdIP0+LenIPv4
-    case TypeIPv6:
-        reqStart, reqEnd = IdIP0, IdIP0+LenIPv6
-    case TypeDm:
-        if _, err = io.ReadFull(conn, buf[IdType+1:IdDmLen+1]); err != nil {
+// src --> pool
+func ServerCopy(dst, src net.Conn) (n1, n2 int64, close bool, err error) {
+    active := true
+    wg := new(sync.WaitGroup)
+    wg.Add(2)
+    go func() {
+        defer wg.Done()
+        n1, err = io.Copy(dst, src)
+        if err != nil {
+            logkit.Errorf("[ServerCopy] src:%s --> dst:%s write error %s", src.RemoteAddr().String(), dst.RemoteAddr().String(), err.Error())
+            if operr, ok := err.(*net.OpError); ok {
+                if operr.Err != pool.ErrInterrupt {
+                    src.Close()
+                    dst.Close()
+                } else {
+                    if hc, ok := src.(*pool.Conn); ok {
+                        close = false
+                        go handle(hc)
+                    }
+                }
+            }
             return
         }
-        reqStart, reqEnd = IdDm0, IdDm0+int(buf[IdDmLen])+LenDmBase
-    default:
-        err = errors.Errorf("addr type %d not supported", addrType&AddrMask)
-        return
-    }
+        src.Close()
+        logkit.Infof("[ServerCopy] src:%s --> dst:%s write over %d byte", src.RemoteAddr().String(), dst.RemoteAddr().String(), n1)
+    }()
     
-    // logkit.Debugf("start %d, end %d", reqStart, reqEnd)
-    if _, err = io.ReadFull(conn, buf[reqStart:reqEnd]); err != nil {
-        return
-    }
-    // logkit.Debugf("buf content %#v", buf[reqStart:reqEnd])
-    // Return string for typeIP is not most efficient, but browsers (Chrome,
-    // Safari, Firefox) all seems using TypeDm exclusively. So this is not a
-    // big problem.
-    host := ""
-    switch addrType & AddrMask {
-    case TypeIPv4:
-        host = net.IP(buf[IdIP0 : IdIP0+net.IPv4len]).String()
-    case TypeIPv6:
-        host = net.IP(buf[IdIP0 : IdIP0+net.IPv6len]).String()
-    case TypeDm:
-        host = string(buf[IdDm0 : IdDm0+int(buf[IdDmLen])])
-    }
-    // parse port
-    port := binary.BigEndian.Uint16(buf[reqEnd-2 : reqEnd])
-    host = net.JoinHostPort(host, strconv.Itoa(int(port)))
-    logkit.Debugf("[getRequestAndDial] remote addr %s", host)
-    
-    remote, err = net.Dial("tcp", host)
-    if err != nil {
-        if ne, ok := err.(*net.OpError); ok && (ne.Err == syscall.EMFILE || ne.Err == syscall.ENFILE) {
-            // log too many open file error
-            // EMFILE is process reaches open file limits, ENFILE is system limit
-            logkit.Errorf("[getRequestAndDial] dial error: %s", err.Error())
-        } else {
-            logkit.Errorf("[getRequestAndDial] error connecting to: host %s, error %s", host, err.Error())
+    go func() {
+        defer wg.Done()
+        n2, err = io.Copy(src, dst)
+        if err != nil {
+            logkit.Errorf("[ServerCopy] dst:%s --> src:%s write error %s", dst.RemoteAddr().String(), src.RemoteAddr().String(), err.Error())
+            // read src error or write dst error
+            if operr, ok := err.(*net.OpError); ok {
+                logkit.Errorf("net op error %#v", operr)
+                if operr.Op == "write" {
+                    active = false
+                }
+            }
+            dst.Close()
         }
-        return
-    }
+        logkit.Infof("[ServerCopy] dst:%s --> src:%s write over %d byte", dst.RemoteAddr().String(), src.RemoteAddr().String(), n2)
+        
+        if active {
+            if hc, ok := src.(*pool.Conn); ok {
+                err = hc.Interrupt(5 * time.Second)
+                if err != nil {
+                    logkit.Errorf("[ServerCopy] close write conn1 send interrupt error %s", err.Error())
+                    return
+                }
+                close = false
+                go handle(hc)
+            }
+        }
+        
+    }()
+    wg.Wait()
+    logkit.Infof("[ServerCopy] OVER")
     return
 }

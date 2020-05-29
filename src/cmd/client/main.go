@@ -8,9 +8,9 @@ import (
     "fmt"
     "github.com/djaigoo/hole/src/code"
     "github.com/djaigoo/hole/src/confs"
-    "github.com/djaigoo/hole/src/connect"
+    "github.com/djaigoo/hole/src/pool"
     "github.com/djaigoo/hole/src/socks5"
-    "github.com/djaigoo/hole/src/utils"
+    "github.com/djaigoo/hole/src/util"
     "github.com/djaigoo/httpclient"
     "github.com/djaigoo/logkit"
     "github.com/pkg/errors"
@@ -19,6 +19,7 @@ import (
     "net/http"
     "strconv"
     "strings"
+    "sync"
     "time"
 )
 
@@ -85,7 +86,6 @@ func main() {
         return
     }
     cert, err := tls.X509KeyPair(crtData, keyData)
-    // cert, err := tls.LoadX509KeyPair(conf.LocalCrtFile, conf.LocalKeyFile)
     if err != nil {
         logkit.Error(err.Error())
         return
@@ -94,6 +94,9 @@ func main() {
     config.Rand = rand.Reader
     config.Certificates = append(config.Certificates, cert)
     config.InsecureSkipVerify = true // 跳过安全验证，可以输入与证书不同的域名
+    
+    // start connect pool
+    pool.Start(addr, config)
     
     listener, err := net.Listen("tcp", ":"+strconv.Itoa(conf.LocalPort))
     if err != nil {
@@ -116,7 +119,7 @@ func main() {
                 logkit.Error(err.Error())
                 return
             }
-            go handle(conn, addr, config)
+            go handle(conn)
         }
     }()
     if udp {
@@ -148,7 +151,7 @@ func main() {
         }()
     }
     
-    logkit.Infof("client quit with signal %d", utils.Signal())
+    logkit.Infof("client quit with signal %d", util.Signal())
 }
 
 func handleUDP(addr *net.UDPAddr, data []byte) {
@@ -261,7 +264,7 @@ func getCA(addr string) (crtData []byte, keyData []byte, err error) {
     return
 }
 
-func handle(conn net.Conn, addr string, config *tls.Config) {
+func handle(conn net.Conn) {
     defer func() {
         err := conn.Close()
         if err != nil {
@@ -271,7 +274,6 @@ func handle(conn net.Conn, addr string, config *tls.Config) {
         logkit.Warnf("[handle] local connect close %s --> %s", conn.RemoteAddr().String(), conn.LocalAddr().String())
     }()
     logkit.Infof("[handle] get new request %s", conn.RemoteAddr())
-    
     attr := &socks5.Attr{}
     err := attr.Handshake(conn)
     if err != nil {
@@ -280,20 +282,11 @@ func handle(conn net.Conn, addr string, config *tls.Config) {
     }
     
     rawAddr, _ := attr.Marshal()
-    
-    server, err := tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", addr, config)
+    server, err := pool.Get()
     if err != nil {
         logkit.Errorf("[handle] tls dial %s", err.Error())
         return
     }
-    defer func() {
-        err := server.Close()
-        if err != nil {
-            logkit.Errorf("[handle] close remote connect %s -> %s error %s", server.LocalAddr().String(), server.RemoteAddr().String(), err.Error())
-            return
-        }
-        logkit.Warnf("[handle] remote connect close %s --> %s", server.LocalAddr().String(), server.RemoteAddr().String())
-    }()
     
     logkit.Infof("[handle] client connect %s --> %s", conn.LocalAddr().String(), server.RemoteAddr().String())
     
@@ -304,12 +297,62 @@ func handle(conn net.Conn, addr string, config *tls.Config) {
     }
     logkit.Infof("[handle] send rawAddr %#v", rawAddr)
     
-    _, _, err = connect.Pipe(conn, server)
+    logkit.Warnf("conn info %s --> %s", conn.RemoteAddr().String(), conn.LocalAddr().String())
+    _, _, err = ClientCopy(server, conn)
     if err != nil {
         logkit.Errorf("[handle] Pipe %s --> %s error %s", conn.RemoteAddr().String(), server.RemoteAddr().String(), err.Error())
         return
     }
     logkit.Debugf("[handle] close conn %s remote %s", conn.RemoteAddr().String(), server.RemoteAddr().String())
+}
+
+// dst --> pool
+func ClientCopy(dst, src net.Conn) (n1, n2 int64, err error) {
+    wg := new(sync.WaitGroup)
+    wg.Add(2)
+    go func() {
+        defer wg.Done()
+        n1, err = io.Copy(dst, src)
+        if err != nil {
+            logkit.Errorf("[ClientCopy] src:%s --> dst:%s write error %s", src.RemoteAddr().String(), dst.RemoteAddr().String(), err.Error())
+            // read src error or write dst error
+            src.Close()
+            dst.Close()
+            return
+        }
+        // src EOF
+        if hc, ok := dst.(*pool.Conn); ok {
+            err = hc.Interrupt(5 * time.Second)
+            if err != nil {
+                logkit.Errorf("[ClientCopy] src:%s --> dst:%s send interrupt error %s", src.RemoteAddr().String(), dst.RemoteAddr().String(), err.Error())
+                return
+            } else {
+                pool.Put(hc)
+            }
+        }
+        logkit.Infof("[ClientCopy] src:%s --> dst:%s write over %d byte", src.RemoteAddr().String(), dst.RemoteAddr().String(), n1)
+        return
+    }()
+    
+    go func() {
+        defer wg.Done()
+        n2, err = io.Copy(src, dst)
+        if err != nil {
+            logkit.Errorf("[ClientCopy] dst:%s --> src:%s write error %s", dst.RemoteAddr().String(), src.RemoteAddr().String(), err.Error())
+            if operr, ok := err.(*net.OpError); ok {
+                if operr.Err != pool.ErrInterrupt {
+                    src.Close()
+                    dst.Close()
+                }
+            }
+            return
+        }
+        logkit.Infof("[ClientCopy] dst:%s --> src:%s write over %d byte", dst.RemoteAddr().String(), src.RemoteAddr().String(), n2)
+    }()
+    wg.Wait()
+    
+    logkit.Infof("[ClientCopy] OVER")
+    return
 }
 
 func handShake(conn net.Conn) (err error) {

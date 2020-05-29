@@ -3,6 +3,7 @@ package socks5
 import (
     "encoding/binary"
     "github.com/djaigoo/logkit"
+    "github.com/pkg/errors"
     "io"
     "net"
     "strconv"
@@ -16,34 +17,26 @@ type Attr struct {
 }
 
 // readAtyp 按照atyp从conn读取addr
-func readAtyp(conn net.Conn, atyp uint8) ([]byte, error) {
-    var ret []byte
+func readAtyp(conn net.Conn, atyp uint8) (ret []byte, err error) {
     switch atyp {
     case IPv4:
         ret = make([]byte, 4)
-        _, err := io.ReadFull(conn, ret)
-        if err != nil {
-            return nil, err
-        }
+        _, err = io.ReadFull(conn, ret)
     case Domain:
         l := make([]byte, 1)
-        _, err := io.ReadFull(conn, l)
+        _, err = io.ReadFull(conn, l)
         if err != nil {
-            return nil, err
+            break
         }
         ret = make([]byte, l[0])
         _, err = io.ReadFull(conn, ret)
-        if err != nil {
-            return nil, err
-        }
     case IPv6:
         ret = make([]byte, 16)
-        _, err := io.ReadFull(conn, ret)
-        if err != nil {
-            return nil, err
-        }
+        _, err = io.ReadFull(conn, ret)
+    default:
+        err = errors.Wrapf(errors.New(""), "invalid atype %#v", atyp)
     }
-    return ret, nil
+    return ret, err
 }
 
 // GetAttrByConn 从conn获取attr
@@ -56,7 +49,11 @@ func GetAttrByConn(conn net.Conn) (*Attr, error) {
     }
     a.Command = tmp[0]
     a.Atyp = tmp[1]
+    logkit.Debugf("%#v", tmp)
     a.Addr, err = readAtyp(conn, a.Atyp)
+    if err != nil {
+        return nil, err
+    }
     
     a.Port = make([]byte, 2)
     _, err = io.ReadFull(conn, a.Port)
@@ -67,7 +64,10 @@ func GetAttrByConn(conn net.Conn) (*Attr, error) {
 }
 
 func (a *Attr) Marshal() ([]byte, error) {
-    ret := []byte{a.Command, a.Atyp, uint8(len(a.Addr))}
+    ret := []byte{a.Command, a.Atyp}
+    if a.Atyp == Domain {
+        ret = append(ret, uint8(len(a.Addr)))
+    }
     ret = append(ret, a.Addr...)
     ret = append(ret, a.Port...)
     return ret, nil

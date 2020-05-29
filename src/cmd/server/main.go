@@ -4,7 +4,7 @@ import (
     "flag"
     "github.com/djaigoo/hole/src/confs"
     "github.com/djaigoo/hole/src/dao"
-    "github.com/djaigoo/hole/src/utils"
+    "github.com/djaigoo/hole/src/util"
     "github.com/djaigoo/logkit"
     "github.com/soheilhy/cmux"
     "io/ioutil"
@@ -56,7 +56,7 @@ func main() {
     
     listener, err := net.Listen("tcp", ":"+strconv.Itoa(conf.ServerPort))
     if err != nil {
-        logkit.Errorf(err.Error())
+        logkit.Errorf("listen error %s", err.Error())
         return
     }
     defer listener.Close()
@@ -78,5 +78,5 @@ func main() {
     }
     
     logkit.Infof("[main] start sever")
-    logkit.Infof("[main] server quit with signal %d", utils.Signal())
+    logkit.Infof("[main] server quit with signal %d", util.Signal())
 }
