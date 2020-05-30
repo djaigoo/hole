@@ -49,7 +49,7 @@ func GetAttrByConn(conn net.Conn) (*Attr, error) {
     }
     a.Command = tmp[0]
     a.Atyp = tmp[1]
-    logkit.Debugf("%#v", tmp)
+    // logkit.Debugf("%#v", tmp)
     a.Addr, err = readAtyp(conn, a.Atyp)
     if err != nil {
         return nil, err
