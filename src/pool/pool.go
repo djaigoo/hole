@@ -3,6 +3,7 @@ package pool
 import (
     "crypto/tls"
     "errors"
+    "fmt"
     "github.com/djaigoo/logkit"
     "net"
     "sync"
@@ -22,13 +23,24 @@ var timers = sync.Pool{
 
 // Stats contains pool state information and accumulated stats.
 type Stats struct {
-    Hits     uint32 // number of times free connection was found in the pool
-    Misses   uint32 // number of times free connection was NOT found in the pool
+    // 从空闲列表中获取成功的次数
+    Hits uint32 // number of times free connection was found in the pool
+    // 从空闲列表中获取失败次数
+    Misses uint32 // number of times free connection was NOT found in the pool
+    // 从池中获取连接超时次数
     Timeouts uint32 // number of times a wait timeout occurred
     
+    // 连接池总连接数
     TotalConns uint32 // number of total connections in the pool
-    IdleConns  uint32 // number of idle connections in the pool
+    // 空闲连接数
+    IdleConns uint32 // number of idle connections in the pool
+    // 过期连接数
     StaleConns uint32 // number of stale connections removed from the pool
+}
+
+func (s *Stats) String() string {
+    return fmt.Sprintf("Hits:%d Misses:%d Timeouts:%d TotalConns:%d IdleConns:%d StaleConns:%d",
+        s.Hits, s.Misses, s.Timeouts, s.TotalConns, s.IdleConns, s.StaleConns)
 }
 
 type Pooler interface {
@@ -37,7 +49,7 @@ type Pooler interface {
     
     Get() (*Conn, error)
     Put(*Conn)
-    Remove(*Conn, error)
+    Remove(*Conn) error
     
     Len() int
     IdleLen() int
@@ -106,6 +118,7 @@ func (p *ConnPool) checkMinIdleConns() {
         return
     }
     if p.poolSize < p.opt.PoolSize && p.idleConnsLen < p.opt.MinIdleConns {
+        // 保证有多个空闲连接
         p.poolSize++
         p.idleConnsLen++
         go p.addIdleConn()
@@ -128,6 +141,7 @@ func (p *ConnPool) NewConn() (*Conn, error) {
     return p._NewConn(false)
 }
 
+// _NewConn new conn pooled 表示是否放回池中
 func (p *ConnPool) _NewConn(pooled bool) (*Conn, error) {
     cn, err := p.newConn(pooled)
     if err != nil {
@@ -148,6 +162,7 @@ func (p *ConnPool) _NewConn(pooled bool) (*Conn, error) {
 }
 
 func (p *ConnPool) newConn(pooled bool) (*Conn, error) {
+    // 检测连接池是否关闭
     if p.closed() {
         return nil, ErrClosed
     }
@@ -169,6 +184,7 @@ func (p *ConnPool) newConn(pooled bool) (*Conn, error) {
     return netConn, nil
 }
 
+// tryDial 尝试拨号
 func (p *ConnPool) tryDial() {
     for {
         if p.closed() {
@@ -221,6 +237,7 @@ func (p *ConnPool) Get() (*Conn, error) {
             break
         }
         
+        // 检测空闲连接是否过期
         if p.isStaleConn(cn) {
             _ = p.CloseConn(cn)
             continue
@@ -272,6 +289,7 @@ func (p *ConnPool) freeTurn() {
     <-p.queue
 }
 
+// popIdle 返回空闲连接
 func (p *ConnPool) popIdle() *Conn {
     if len(p.idleConns) == 0 {
         return nil
@@ -285,9 +303,10 @@ func (p *ConnPool) popIdle() *Conn {
     return cn
 }
 
+// Put 归还连接
 func (p *ConnPool) Put(cn *Conn) {
     if !cn.pooled {
-        p.Remove(cn, nil)
+        p.Remove(cn)
         return
     }
     
@@ -298,10 +317,13 @@ func (p *ConnPool) Put(cn *Conn) {
     p.freeTurn()
 }
 
-func (p *ConnPool) Remove(cn *Conn, reason error) {
+// Remove 从pool中移除cn 并 close
+func (p *ConnPool) Remove(cn *Conn) error {
     p.removeConn(cn)
-    p.freeTurn()
-    _ = p.closeConn(cn)
+    if cn.pooled {
+        p.freeTurn()
+    }
+    return p.closeConn(cn)
 }
 
 func (p *ConnPool) CloseConn(cn *Conn) error {
@@ -309,6 +331,7 @@ func (p *ConnPool) CloseConn(cn *Conn) error {
     return p.closeConn(cn)
 }
 
+// removeConn 移除连接池中的某条连接
 func (p *ConnPool) removeConn(cn *Conn) {
     p.connsMu.Lock()
     for i, c := range p.conns {
@@ -324,6 +347,7 @@ func (p *ConnPool) removeConn(cn *Conn) {
     p.connsMu.Unlock()
 }
 
+// closeConn 执行设定的OnClose函数并关闭连接
 func (p *ConnPool) closeConn(cn *Conn) error {
     if p.opt.OnClose != nil {
         _ = p.opt.OnClose(cn)
@@ -347,6 +371,7 @@ func (p *ConnPool) IdleLen() int {
     return n
 }
 
+// Stats 返回连接池状态
 func (p *ConnPool) Stats() *Stats {
     idleLen := p.IdleLen()
     return &Stats{
@@ -360,10 +385,12 @@ func (p *ConnPool) Stats() *Stats {
     }
 }
 
+// closed 检测pool是否关闭
 func (p *ConnPool) closed() bool {
     return atomic.LoadUint32(&p._closed) == 1
 }
 
+// Filter 筛选连接并关闭
 func (p *ConnPool) Filter(fn func(*Conn) bool) error {
     var firstErr error
     p.connsMu.Lock()
@@ -378,6 +405,7 @@ func (p *ConnPool) Filter(fn func(*Conn) bool) error {
     return firstErr
 }
 
+// Close 关闭连接池
 func (p *ConnPool) Close() error {
     if !atomic.CompareAndSwapUint32(&p._closed, 0, 1) {
         return ErrClosed
@@ -399,6 +427,7 @@ func (p *ConnPool) Close() error {
     return firstErr
 }
 
+// reapStaleConn 检测第一个空闲连接是否过期 过期则返回
 func (p *ConnPool) reapStaleConn() *Conn {
     if len(p.idleConns) == 0 {
         return nil
@@ -415,6 +444,7 @@ func (p *ConnPool) reapStaleConn() *Conn {
     return cn
 }
 
+// ReapStaleConns 关闭过期连接
 func (p *ConnPool) ReapStaleConns() (int, error) {
     var n int
     for {
@@ -440,6 +470,7 @@ func (p *ConnPool) ReapStaleConns() (int, error) {
     return n, nil
 }
 
+// reaper 定时清理过期连接
 func (p *ConnPool) reaper(frequency time.Duration) {
     ticker := time.NewTicker(frequency)
     defer ticker.Stop()
@@ -457,6 +488,7 @@ func (p *ConnPool) reaper(frequency time.Duration) {
     }
 }
 
+// isStaleConn 检测连接是否过期
 func (p *ConnPool) isStaleConn(cn *Conn) bool {
     if p.opt.IdleTimeout == 0 && p.opt.MaxConnAge == 0 {
         return false
@@ -475,7 +507,11 @@ func (p *ConnPool) isStaleConn(cn *Conn) bool {
 
 var Pool Pooler
 
-func Start(addr string, config *tls.Config) {
+func Close() error {
+    return Pool.Close()
+}
+
+func Start(addr string, size int, config *tls.Config) {
     opt := &Options{
         Dialer: func() (*Conn, error) {
             var conn net.Conn
@@ -484,36 +520,45 @@ func Start(addr string, config *tls.Config) {
                 conn, err = net.DialTimeout("tcp", addr, 5*time.Second)
             } else {
                 conn, err = tls.Dial("tcp", addr, config)
-                logkit.Debugf("new tls conn %s", conn.LocalAddr().String())
             }
             if err != nil {
                 return nil, err
             }
+            logkit.Debugf("[Pool] New Conn %s", conn.LocalAddr().String())
             return NewConn(conn), nil
         },
         OnClose: func(conn *Conn) error {
-            // logkit.Trace()
+            logkit.Debugf("[Pool] Close Conn %s", conn.LocalAddr().String())
             return nil
         },
-        PoolSize:           100, // max pool conn nums
+        PoolSize:           size, // max pool conn nums
         MinIdleConns:       0,
-        MaxConnAge:         600 * time.Second, // check create time
-        PoolTimeout:        10 * time.Second,  // pool get time out
-        IdleTimeout:        30 * time.Second,  // check use at time
-        IdleCheckFrequency: 5 * time.Second,
+        MaxConnAge:         24 * time.Hour,  // check create time
+        PoolTimeout:        5 * time.Second, // pool get time out
+        IdleTimeout:        5 * time.Minute, // check use at time
+        IdleCheckFrequency: 10 * time.Second,
     }
     Pool = NewConnPool(opt)
+    go func() {
+        for range time.NewTicker(5 * time.Second).C {
+            logkit.Debugf("[Pool] status: %s", Pool.Stats())
+        }
+    }()
 }
 
 func Get() (*Conn, error) {
     conn, err := Pool.Get()
     if conn != nil {
-        logkit.Debugf("Pool GET conn %s", conn.LocalAddr().String())
+        logkit.Debugf("[Pool] GET conn %s", conn.LocalAddr().String())
     }
     return conn, err
 }
 
 func Put(conn *Conn) {
-    logkit.Debugf("Pool PUT conn %s", conn.LocalAddr().String())
+    logkit.Debugf("[Pool] PUT conn %s", conn.LocalAddr().String())
     Pool.Put(conn)
+}
+
+func Remove(conn *Conn) error {
+    return Pool.Remove(conn)
 }

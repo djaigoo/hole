@@ -56,7 +56,7 @@ func main() {
     
     listener, err := net.Listen("tcp", ":"+strconv.Itoa(conf.ServerPort))
     if err != nil {
-        logkit.Errorf("listen error %s", err.Error())
+        logkit.Errorf("[main] listen error %s", err.Error())
         return
     }
     defer listener.Close()

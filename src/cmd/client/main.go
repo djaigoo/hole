@@ -29,6 +29,7 @@ var (
     remoteAddr string
     debug      bool
     udp        bool
+    psize      int
 )
 
 func init() {
@@ -37,6 +38,7 @@ func init() {
     flag.StringVar(&remoteAddr, "addr", "", "远端服务器地址")
     flag.BoolVar(&debug, "debug", false, "是否打印调试日志")
     flag.BoolVar(&udp, "udp", false, "是否启动udp")
+    flag.IntVar(&psize, "psize", 100, "连接池大小")
     flag.Parse()
 }
 
@@ -80,23 +82,24 @@ func main() {
     
     addr := conf.Server + ":" + strconv.Itoa(conf.ServerPort)
     // get ca
-    crtData, keyData, err := getCA(addr)
-    if err != nil {
-        logkit.Error(err.Error())
-        return
-    }
-    cert, err := tls.X509KeyPair(crtData, keyData)
-    if err != nil {
-        logkit.Error(err.Error())
-        return
-    }
+    // crtData, keyData, err := getCA(addr)
+    // if err != nil {
+    //     logkit.Error(err.Error())
+    //     return
+    // }
+    // cert, err := tls.X509KeyPair(crtData, keyData)
+    // if err != nil {
+    //     logkit.Error(err.Error())
+    //     return
+    // }
     config := &tls.Config{}
-    config.Rand = rand.Reader
-    config.Certificates = append(config.Certificates, cert)
+    // config.Rand = rand.Reader
+    // config.Certificates = append(config.Certificates, cert)
     config.InsecureSkipVerify = true // 跳过安全验证，可以输入与证书不同的域名
     
     // start connect pool
-    pool.Start(addr, config)
+    pool.Start(addr, psize, config)
+    defer pool.Close()
     
     listener, err := net.Listen("tcp", ":"+strconv.Itoa(conf.LocalPort))
     if err != nil {
@@ -137,7 +140,7 @@ func main() {
             for {
                 n, addr, err := ulistener.ReadFromUDP(data)
                 if err != nil {
-                    logkit.Errorf("udp read from error %s", err.Error())
+                    logkit.Errorf("[main] udp read from error %s", err.Error())
                     return
                 }
                 // logkit.Infof("get udp remote %s msg %#v", addr.String(), data[:n])
@@ -151,7 +154,7 @@ func main() {
         }()
     }
     
-    logkit.Infof("client quit with signal %d", util.Signal())
+    logkit.Infof("[main] client quit with signal %d", util.Signal())
 }
 
 func handleUDP(addr *net.UDPAddr, data []byte) {
@@ -297,159 +300,67 @@ func handle(conn net.Conn) {
     }
     logkit.Infof("[handle] send rawAddr %#v", rawAddr)
     
-    logkit.Warnf("conn info %s --> %s", conn.RemoteAddr().String(), conn.LocalAddr().String())
-    _, _, err = ClientCopy(server, conn)
-    if err != nil {
-        logkit.Errorf("[handle] Pipe %s --> %s error %s", conn.RemoteAddr().String(), server.RemoteAddr().String(), err.Error())
-        return
-    }
+    logkit.Warnf("[handle] conn info %s --> %s", conn.RemoteAddr().String(), conn.LocalAddr().String())
+    _, _ = ClientCopy(server, conn)
+    
     logkit.Debugf("[handle] close conn %s remote %s", conn.RemoteAddr().String(), server.RemoteAddr().String())
 }
 
 // dst --> pool
-func ClientCopy(dst, src net.Conn) (n1, n2 int64, err error) {
+func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
+    back1 := false // 默认dst连接直接remove
+    back2 := false
     wg := new(sync.WaitGroup)
     wg.Add(2)
     go func() {
         defer wg.Done()
-        n1, err = io.Copy(dst, src)
+        n1, err := io.Copy(dst, src)
+        logkit.Infof("[ClientCopy] src:%s --> dst:%s write over %d byte", src.RemoteAddr().String(), dst.LocalAddr().String(), n1)
         if err != nil {
-            logkit.Errorf("[ClientCopy] src:%s --> dst:%s write error %s", src.RemoteAddr().String(), dst.RemoteAddr().String(), err.Error())
-            // read src error or write dst error
-            src.Close()
-            dst.Close()
-            return
-        }
-        // src EOF
-        if hc, ok := dst.(*pool.Conn); ok {
-            err = hc.Interrupt(5 * time.Second)
-            if err != nil {
-                logkit.Errorf("[ClientCopy] src:%s --> dst:%s send interrupt error %s", src.RemoteAddr().String(), dst.RemoteAddr().String(), err.Error())
-                return
-            } else {
-                pool.Put(hc)
+            // only write dst error return
+            if operr, ok := err.(*net.OpError); ok {
+                if operr.Op == "write" {
+                    logkit.Errorf("[ClientCopy] src:%s --> dst:%s write error %s", src.RemoteAddr().String(), dst.LocalAddr().String(), err.Error())
+                    return
+                }
             }
         }
-        logkit.Infof("[ClientCopy] src:%s --> dst:%s write over %d byte", src.RemoteAddr().String(), dst.RemoteAddr().String(), n1)
-        return
+        // src EOF
+        err = dst.Interrupt(10 * time.Second)
+        if err != nil {
+            logkit.Errorf("[ClientCopy] src:%s --> dst:%s send interrupt error %s", src.RemoteAddr().String(), dst.LocalAddr().String(), err.Error())
+            return
+        }
+        back1 = true
     }()
     
     go func() {
         defer wg.Done()
-        n2, err = io.Copy(src, dst)
+        n2, err := io.Copy(src, dst)
+        logkit.Infof("[ClientCopy] dst:%s --> src:%s write over %d byte", dst.LocalAddr().String(), src.RemoteAddr().String(), n2)
         if err != nil {
-            logkit.Errorf("[ClientCopy] dst:%s --> src:%s write error %s", dst.RemoteAddr().String(), src.RemoteAddr().String(), err.Error())
             if operr, ok := err.(*net.OpError); ok {
-                if operr.Err != pool.ErrInterrupt {
-                    src.Close()
-                    dst.Close()
+                if operr.Op != "write" || operr.Err != pool.ErrInterrupt {
+                    logkit.Errorf("[ClientCopy] dst:%s --> src:%s write error %s", dst.LocalAddr().String(), src.RemoteAddr().String(), err.Error())
+                    return
                 }
             }
+        }
+        
+        err = dst.Interrupt(10 * time.Second)
+        if err != nil {
+            logkit.Errorf("[ClientCopy] src:%s --> dst:%s send interrupt error %s", src.RemoteAddr().String(), dst.LocalAddr().String(), err.Error())
             return
         }
-        logkit.Infof("[ClientCopy] dst:%s --> src:%s write over %d byte", dst.RemoteAddr().String(), src.RemoteAddr().String(), n2)
+        back2 = true
     }()
     wg.Wait()
     
-    logkit.Infof("[ClientCopy] OVER")
-    return
-}
-
-func handShake(conn net.Conn) (err error) {
-    const (
-        idVer     = 0
-        idNmethod = 1
-    )
-    // version identification and method selection message in theory can have
-    // at most 256 methods, plus version and nmethod field in total 258 bytes
-    // the current rfc defines only 3 authentication methods (plus 2 reserved),
-    // so it won't be such long in practice
-    
-    buf := make([]byte, 258)
-    
-    var n int
-    // make sure we get the nmethod field
-    if n, err = io.ReadAtLeast(conn, buf, idNmethod+1); err != nil {
-        return
-    }
-    if buf[idVer] != socksVer5 {
-        return errVer
-    }
-    nmethod := int(buf[idNmethod])
-    msgLen := nmethod + 2
-    if n == msgLen { // handshake done, common case
-        // do nothing, jump directly to send confirmation
-    } else if n < msgLen { // has more methods to read, rare case
-        if _, err = io.ReadFull(conn, buf[n:msgLen]); err != nil {
-            return
-        }
-    } else { // error, should not get extra data
-        return errAuthExtraData
-    }
-    // send confirmation: version 5, no authentication required
-    _, err = conn.Write([]byte{socksVer5, 0})
-    return
-}
-
-// getRequest 获取请求数据
-// rawaddr返回请求地址，IPv4 IPv6 域名
-// host 返回目标IP:port
-func getRequest(conn net.Conn) (rawaddr []byte, err error) {
-    // refer to getRequest in server.go for why set buffer size to 263
-    buf := make([]byte, 263)
-    var n int
-    // read till we get possible domain length field
-    if n, err = io.ReadAtLeast(conn, buf, IdDmLen+1); err != nil {
-        return
-    }
-    // check version and cmd
-    if buf[IdVer] != socksVer5 {
-        err = errVer
-        return
-    }
-    if buf[IdCmd] != socksCmdConnect {
-        err = errCmd
-        logkit.Errorf("[getRequest] invalid cmd %d", buf[IdCmd])
-        return
-    }
-    
-    reqLen := -1
-    switch buf[IdType] {
-    case TypeIPv4:
-        reqLen = LenIPv4
-    case TypeIPv6:
-        reqLen = LenIPv6
-    case TypeDm:
-        reqLen = int(buf[IdDmLen]) + LenDmBase
-    default:
-        err = errAddrType
-        return
-    }
-    
-    if n == reqLen {
-        // common case, do nothing
-    } else if n < reqLen { // rare case
-        if _, err = io.ReadFull(conn, buf[n:reqLen]); err != nil {
-            return
-        }
+    if back1 && back2 {
+        pool.Put(dst)
     } else {
-        err = errReqExtraData
-        return
+        pool.Remove(dst)
     }
-    
-    rawaddr = buf[IdType:reqLen]
-    
-    // print host
-    host := ""
-    port := strconv.Itoa(int(binary.BigEndian.Uint16(buf[reqLen-2:])))
-    switch rawaddr[0] {
-    case TypeIPv4:
-        host = (&net.IPAddr{IP: buf[IdType+1 : reqLen-2]}).String() + ":" + port
-    case TypeIPv6:
-        host = (&net.IPAddr{IP: buf[IdType+1 : reqLen-2]}).String() + ":" + port
-    case TypeDm:
-        host = string(buf[IdType+2:reqLen-2]) + ":" + port
-    }
-    logkit.Debugf("[getRequest] %s request host %s", conn.RemoteAddr(), host)
+    logkit.Infof("[ClientCopy] OVER")
     return
 }

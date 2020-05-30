@@ -130,15 +130,15 @@ func (c *Conn) read() (err error) {
     head := make([]byte, 6)
     n, err := c.conn.Read(head)
     if err != nil {
-        logkit.Errorf("read head error %s", err.Error())
+        logkit.Errorf("[read] head error %s", err.Error())
         return err
     }
     if n < 6 {
-        logkit.Errorf("recv len not 6")
+        logkit.Errorf("[read] recv len not 6")
         return ErrLength
     }
     if head[0] != VER {
-        logkit.Errorf("head ver not 1 %#v", head)
+        logkit.Errorf("[read] head ver not 1 %#v", head)
         return ErrVersion
     }
     // logkit.Debugf("read head %#v", head)
@@ -165,7 +165,7 @@ func (c *Conn) read() (err error) {
         }
         return nil
     case TransInterrupt:
-        logkit.Warnf("TransInterrupt from %s -> %s", c.conn.RemoteAddr().String(), c.conn.LocalAddr().String())
+        logkit.Warnf("[read] TransInterrupt from %s -> %s", c.conn.RemoteAddr().String(), c.conn.LocalAddr().String())
         c.status = TransInterrupt
         _, err = c.conn.Write([]byte{VER, byte(TransInterruptAck), 0, 0, 0, 0})
         if err != nil {
@@ -173,12 +173,12 @@ func (c *Conn) read() (err error) {
         }
         return ErrInterrupt
     case TransInterruptAck:
-        logkit.Warnf("TransInterruptAck from %s -> %s", c.conn.RemoteAddr().String(), c.conn.LocalAddr().String())
+        logkit.Warnf("[read] TransInterruptAck from %s -> %s", c.conn.RemoteAddr().String(), c.conn.LocalAddr().String())
         c.status = TransInterruptAck
         c.chInterruptAck <- true
         return ErrInterrupt
     case TransClose:
-        logkit.Warnf("TransClose from %s -> %s", c.conn.RemoteAddr().String(), c.conn.LocalAddr().String())
+        logkit.Warnf("[read] TransClose from %s -> %s", c.conn.RemoteAddr().String(), c.conn.LocalAddr().String())
         _, err = c.conn.Write([]byte{VER, byte(TransCloseAck), 0, 0, 0, 0})
         if err != nil {
             return err
@@ -193,7 +193,7 @@ func (c *Conn) read() (err error) {
             return nil
         }
     case TransCloseAck:
-        logkit.Warnf("TransCloseAck from %s -> %s", c.conn.RemoteAddr().String(), c.conn.LocalAddr().String())
+        logkit.Warnf("[read] TransCloseAck from %s -> %s", c.conn.RemoteAddr().String(), c.conn.LocalAddr().String())
         if c.status == TransClose || c.status == TransCloseAck || c.status == TransCloseWrite {
             c.readTicker.Stop()
             if wconn, ok := c.conn.(closeWriter); ok {
@@ -207,7 +207,7 @@ func (c *Conn) read() (err error) {
             return nil
         }
     case TransCloseWrite:
-        logkit.Warnf("TransCloseWrite from %s -> %s", c.conn.RemoteAddr().String(), c.conn.LocalAddr().String())
+        logkit.Warnf("[read] TransCloseWrite from %s -> %s", c.conn.RemoteAddr().String(), c.conn.LocalAddr().String())
         c.status = TransCloseWrite
         _, err = c.conn.Write([]byte{VER, byte(TransCloseAck), 0, 0, 0, 0})
         if err != nil {
@@ -226,13 +226,13 @@ func (c *Conn) read() (err error) {
             return nil
         }
     default:
-        logkit.Errorf("invalid cmd")
+        logkit.Errorf("[read] invalid cmd")
         return ErrCommand
     }
 }
 
 func (c *Conn) Read(b []byte) (n int, err error) {
-    logkit.Infof("call Read cur:%s->%s status %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.status)
+    // logkit.Infof("call Read cur:%s->%s status %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.status)
     if len(c.readBuf) == 0 {
         err = c.read()
         if err != nil {
@@ -253,7 +253,7 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 }
 
 func (c *Conn) Write(b []byte) (n int, err error) {
-    logkit.Infof("call Write cur:%s->%s  status %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.status)
+    // logkit.Infof("call Write cur:%s->%s  status %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.status)
     l := len(b)
     ldata := make([]byte, 4)
     binary.BigEndian.PutUint32(ldata, uint32(l))
@@ -274,7 +274,7 @@ func (c *Conn) Start() error {
 }
 
 func (c *Conn) Interrupt(timeout time.Duration) error {
-    logkit.Infof("call Interrupt cur:%s status %s", c.LocalAddr().String(), c.status)
+    logkit.Debugf("[read] call Interrupt cur:%s status %s", c.LocalAddr().String(), c.status)
     if c.status == TransInterrupt || c.status == TransInterruptAck {
         return nil
     }
@@ -289,13 +289,19 @@ func (c *Conn) Interrupt(timeout time.Duration) error {
 }
 
 func (c *Conn) CloseWrite() error {
-    logkit.Infof("call CloseWrite cur:%s status %s", c.LocalAddr().String(), c.status)
+    logkit.Debugf("[read] call CloseWrite cur:%s status %s", c.LocalAddr().String(), c.status)
+    if c.status == TransCloseAck {
+        return nil
+    }
     _, err := c.conn.Write([]byte{VER, byte(TransCloseWrite), 0, 0, 0, 0})
     return err
 }
 
 func (c *Conn) Close() error {
-    logkit.Infof("call Close cur:%s status %s", c.LocalAddr().String(), c.status)
+    logkit.Debugf("[read] call Close cur:%s status %s", c.LocalAddr().String(), c.status)
+    if c.status == TransCloseAck {
+        return nil
+    }
     _, err := c.conn.Write([]byte{VER, byte(TransClose), 0, 0, 0, 0})
     return err
 }

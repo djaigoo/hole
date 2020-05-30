@@ -42,7 +42,7 @@ func tlsServer(listener net.Listener) {
     }
 }
 
-func handle(conn net.Conn) {
+func handle(conn *pool.Conn) {
     close := true
     defer func() {
         if close {
@@ -70,7 +70,7 @@ func handle(conn net.Conn) {
         }
     }
     if attr == nil {
-        logkit.Errorf("attr is nil")
+        logkit.Errorf("[handle] attr is nil")
         return
     }
     info, _ := attr.Marshal()
@@ -117,74 +117,77 @@ func handle(conn net.Conn) {
     if remote == nil {
         return
     }
+    defer func() {
+        err = remote.Close()
+        if err != nil {
+            logkit.Errorf("[handle] close remote %s --> %s error: %s", remote.LocalAddr().String(), remote.RemoteAddr().String(), err.Error())
+            return
+        }
+    }()
     
     logkit.Debugf("[handle] get remote %s", remote.RemoteAddr().String())
     
-    _, _, close, err = ServerCopy(remote, conn)
-    if err != nil {
-        logkit.Errorf("[handle] %s --> %s Pipe error %s", conn.RemoteAddr().String(), remote.RemoteAddr().String(), err.Error())
-        return
-    }
+    _, _, close = ServerCopy(remote, conn)
     logkit.Infof("[handle] Client %s Connection Closed.....", conn.RemoteAddr().String())
 }
 
 // src --> pool
-func ServerCopy(dst, src net.Conn) (n1, n2 int64, close bool, err error) {
-    active := true
+func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
+    active1 := false
+    active2 := false
     wg := new(sync.WaitGroup)
     wg.Add(2)
     go func() {
         defer wg.Done()
-        n1, err = io.Copy(dst, src)
+        n1, err := io.Copy(dst, src)
+        logkit.Infof("[ServerCopy] src:%s --> dst:%s write over %d byte", src.LocalAddr().String(), dst.RemoteAddr().String(), n1)
+        
         if err != nil {
-            logkit.Errorf("[ServerCopy] src:%s --> dst:%s write error %s", src.RemoteAddr().String(), dst.RemoteAddr().String(), err.Error())
             if operr, ok := err.(*net.OpError); ok {
-                if operr.Err != pool.ErrInterrupt {
-                    src.Close()
-                    dst.Close()
-                } else {
-                    if hc, ok := src.(*pool.Conn); ok {
-                        close = false
-                        go handle(hc)
-                    }
+                if operr.Err != pool.ErrInterrupt && operr.Op != "write" {
+                    logkit.Errorf("[ServerCopy] src:%s --> dst:%s write error %s", src.LocalAddr().String(), dst.RemoteAddr().String(), err.Error())
+                    return
                 }
             }
+        }
+        err = src.Interrupt(10 * time.Second)
+        if err != nil {
+            logkit.Errorf("[ServerCopy] src:%s send interrupt error %s", src.RemoteAddr().String(), err.Error())
             return
         }
-        src.Close()
-        logkit.Infof("[ServerCopy] src:%s --> dst:%s write over %d byte", src.RemoteAddr().String(), dst.RemoteAddr().String(), n1)
+        active1 = true
     }()
     
     go func() {
         defer wg.Done()
-        n2, err = io.Copy(src, dst)
+        n2, err := io.Copy(src, dst)
+        logkit.Infof("[ServerCopy] dst:%s --> src:%s write over %d byte", dst.RemoteAddr().String(), src.LocalAddr().String(), n2)
+        
         if err != nil {
-            logkit.Errorf("[ServerCopy] dst:%s --> src:%s write error %s", dst.RemoteAddr().String(), src.RemoteAddr().String(), err.Error())
             // read src error or write dst error
             if operr, ok := err.(*net.OpError); ok {
-                logkit.Errorf("net op error %#v", operr)
                 if operr.Op == "write" {
-                    active = false
-                }
-            }
-            dst.Close()
-        }
-        logkit.Infof("[ServerCopy] dst:%s --> src:%s write over %d byte", dst.RemoteAddr().String(), src.RemoteAddr().String(), n2)
-        
-        if active {
-            if hc, ok := src.(*pool.Conn); ok {
-                err = hc.Interrupt(5 * time.Second)
-                if err != nil {
-                    logkit.Errorf("[ServerCopy] close write conn1 send interrupt error %s", err.Error())
+                    logkit.Errorf("[ServerCopy] dst:%s --> src:%s write error %s", dst.RemoteAddr().String(), src.LocalAddr().String(), err.Error())
                     return
                 }
-                close = false
-                go handle(hc)
             }
         }
         
+        err = src.Interrupt(10 * time.Second)
+        if err != nil {
+            logkit.Errorf("[ServerCopy] close write conn1 send interrupt error %s", err.Error())
+            return
+        }
+        active2 = true
     }()
     wg.Wait()
+    
+    if active1 && active2 {
+        go handle(src)
+        close = false
+    } else {
+        close = true
+    }
     logkit.Infof("[ServerCopy] OVER")
     return
 }
