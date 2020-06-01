@@ -186,6 +186,7 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
         go handle(src)
         close = false
     } else {
+        logkit.Errorf("[ServerCopy] Remove conn active1:%v active2:%v", active1, active2)
         close = true
     }
     logkit.Infof("[ServerCopy] OVER")
