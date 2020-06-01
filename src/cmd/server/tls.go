@@ -154,6 +154,10 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
                 }
             }
         }
+        // src io.EOF
+        if err == nil {
+            return
+        }
         err = src.Interrupt(10 * time.Second)
         if err != nil {
             logkit.Errorf("[ServerCopy] src:%s send interrupt error %s", src.RemoteAddr().String(), err.Error())
@@ -175,10 +179,6 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
                     return
                 }
             }
-        }
-        
-        if err == nil {
-            return
         }
         
         err = src.Interrupt(10 * time.Second)

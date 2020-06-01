@@ -343,7 +343,8 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
                 }
             }
         }
-        
+    
+        // dst io.EOF
         if err == nil {
             return
         }
