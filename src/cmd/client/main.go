@@ -83,20 +83,8 @@ func main() {
     logkit.Debugf("[main] print conf %#v", conf)
     
     addr := conf.Server + ":" + strconv.Itoa(conf.ServerPort)
-    // get ca
-    // crtData, keyData, err := getCA(addr)
-    // if err != nil {
-    //     logkit.Error(err.Error())
-    //     return
-    // }
-    // cert, err := tls.X509KeyPair(crtData, keyData)
-    // if err != nil {
-    //     logkit.Error(err.Error())
-    //     return
-    // }
+    
     config := &tls.Config{}
-    // config.Rand = rand.Reader
-    // config.Certificates = append(config.Certificates, cert)
     config.InsecureSkipVerify = true // 跳过安全验证，可以输入与证书不同的域名
     if mode == "tcp" {
         config = nil
@@ -301,6 +289,7 @@ func handle(conn net.Conn) {
     _, err = server.Write(rawAddr)
     if err != nil {
         logkit.Errorf("[handle] %s --> %s server write raw addr error %s", conn.RemoteAddr().String(), server.RemoteAddr(), err.Error())
+        pool.Remove(server)
         return
     }
     logkit.Infof("[handle] send rawAddr %#v", rawAddr)
@@ -367,6 +356,7 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
     if back1 && back2 {
         pool.Put(dst)
     } else {
+        logkit.Errorf("[ClientCopy] Remove conn back1:%v back2:%v", back1, back2)
         pool.Remove(dst)
     }
     logkit.Infof("[ClientCopy] OVER")

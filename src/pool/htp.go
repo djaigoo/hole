@@ -49,8 +49,8 @@ type cmd uint8
 
 func (c cmd) String() string {
     switch c {
-    case TransStart:
-        return "TransStart"
+    case TransHeartbeat:
+        return "TransHeartbeat"
     case Transing:
         return "Transing"
     case TransInterrupt:
@@ -72,7 +72,7 @@ func (c cmd) String() string {
 
 // command
 const (
-    TransStart        = cmd(iota)
+    TransHeartbeat    = cmd(iota)
     Transing          // 1 传输数据
     TransInterrupt    // 2 中断本次数据传输但不断开连接
     TransInterruptAck // 3 中断本次数据传输但不断开连接
@@ -90,12 +90,13 @@ type Content struct {
 }
 
 type Conn struct {
-    conn       net.Conn
-    status     cmd
-    readBuf    []byte
-    readErr    error
-    readLock   sync.Mutex
-    readTicker *time.Ticker
+    conn     net.Conn
+    status   cmd
+    readBuf  []byte
+    readErr  error
+    readLock sync.Mutex
+    
+    heartbeatTicker *time.Ticker
     
     chInterruptAck chan bool
     
@@ -115,16 +116,16 @@ func NewConn(conn net.Conn) *Conn {
         return nil
     }
     c := &Conn{
-        conn:           conn,
-        status:         TransInterrupt,
-        readBuf:        make([]byte, 0, 2048),
-        readTicker:     time.NewTicker(500 * time.Millisecond),
-        chInterruptAck: make(chan bool),
-        createdAt:      time.Now(),
-        usedAt:         atomic.Value{},
+        conn:            conn,
+        status:          TransInterrupt,
+        readBuf:         make([]byte, 0, 2048),
+        heartbeatTicker: time.NewTicker(10 * time.Second),
+        chInterruptAck:  make(chan bool),
+        createdAt:       time.Now(),
+        usedAt:          atomic.Value{},
     }
     c.usedAt.Store(time.Now())
-    c.Start()
+    go c.Heartbeat()
     return c
 }
 
@@ -152,8 +153,8 @@ func (c *Conn) read() (err error) {
     }
     // logkit.Debugf("read head %#v", head)
     switch cmd(head[1]) {
-    case TransStart:
-        c.status = TransStart
+    case TransHeartbeat:
+        // keep alive heartbeat
         return nil
     case Transing:
         c.status = Transing
@@ -194,7 +195,7 @@ func (c *Conn) read() (err error) {
         }
         
         if c.status == TransClose || c.status == TransCloseAck || c.status == TransCloseWrite {
-            c.readTicker.Stop()
+            c.heartbeatTicker.Stop()
             c.conn.Close()
             return io.EOF
         } else {
@@ -204,7 +205,7 @@ func (c *Conn) read() (err error) {
     case TransCloseAck:
         logkit.Warnf("[read] TransCloseAck from %s -> %s", c.conn.RemoteAddr().String(), c.conn.LocalAddr().String())
         if c.status == TransClose || c.status == TransCloseAck || c.status == TransCloseWrite {
-            c.readTicker.Stop()
+            c.heartbeatTicker.Stop()
             if wconn, ok := c.conn.(closeWriter); ok {
                 wconn.CloseWrite()
             } else {
@@ -227,7 +228,7 @@ func (c *Conn) read() (err error) {
         }
         
         if c.status == TransClose || c.status == TransCloseAck || c.status == TransCloseWrite {
-            c.readTicker.Stop()
+            c.heartbeatTicker.Stop()
             c.conn.Close()
             return io.EOF
         } else {
@@ -263,6 +264,9 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 
 func (c *Conn) Write(b []byte) (n int, err error) {
     // logkit.Infof("call Write cur:%s->%s  status %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.status)
+    if c.status == TransClose || c.status == TransCloseAck || c.status == TransCloseWrite {
+        return 0, ErrClosed
+    }
     l := len(b)
     ldata := make([]byte, 4)
     binary.BigEndian.PutUint32(ldata, uint32(l))
@@ -277,17 +281,32 @@ func (c *Conn) Write(b []byte) (n int, err error) {
     return n - 6, nil
 }
 
-func (c *Conn) Start() error {
-    _, err := c.conn.Write([]byte{VER, byte(TransStart), 0, 0, 0, 0})
+func (c *Conn) sendCmd(id cmd) error {
+    if id != TransHeartbeat {
+        logkit.Debugf("[read] call %s cur:%s->%s status %s", id, c.LocalAddr().String(), c.RemoteAddr().String(), c.status)
+    }
+    _, err := c.conn.Write([]byte{VER, byte(id), 0, 0, 0, 0})
     return err
 }
 
+func (c *Conn) Heartbeat() error {
+    for range c.heartbeatTicker.C {
+        err := c.sendCmd(TransHeartbeat)
+        if err != nil {
+            return err
+        }
+    }
+    return nil
+}
+
 func (c *Conn) Interrupt(timeout time.Duration) error {
-    logkit.Debugf("[read] call Interrupt cur:%s->%s status %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.status)
     if c.status == TransInterrupt || c.status == TransInterruptAck {
         return nil
     }
-    _, err := c.conn.Write([]byte{VER, byte(TransInterrupt), 0, 0, 0, 0})
+    if c.status == TransClose || c.status == TransCloseAck || c.status == TransCloseWrite {
+        return ErrClosed
+    }
+    err := c.sendCmd(TransInterrupt)
     if err != nil {
         return err
     }
@@ -298,20 +317,18 @@ func (c *Conn) Interrupt(timeout time.Duration) error {
 }
 
 func (c *Conn) CloseWrite() error {
-    logkit.Debugf("[read] call CloseWrite cur:%s->%s status %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.status)
     if c.status == TransCloseAck {
         return nil
     }
-    _, err := c.conn.Write([]byte{VER, byte(TransCloseWrite), 0, 0, 0, 0})
+    err := c.sendCmd(TransCloseWrite)
     return err
 }
 
 func (c *Conn) Close() error {
-    logkit.Debugf("[read] call Close cur:%s->%s status %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.status)
     if c.status == TransCloseAck {
         return nil
     }
-    _, err := c.conn.Write([]byte{VER, byte(TransClose), 0, 0, 0, 0})
+    err := c.sendCmd(TransClose)
     return err
 }
 

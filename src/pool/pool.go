@@ -560,5 +560,6 @@ func Put(conn *Conn) {
 }
 
 func Remove(conn *Conn) error {
+    logkit.Debugf("[Pool] Remove conn %s", conn.LocalAddr().String())
     return Pool.Remove(conn)
 }
