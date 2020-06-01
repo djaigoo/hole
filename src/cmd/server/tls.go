@@ -144,7 +144,7 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
         
         if err != nil {
             if operr, ok := err.(*net.OpError); ok {
-                if operr.Err.Error() != "interrupt" && operr.Op != "write" {
+                if operr.Err != pool.ErrInterrupt && operr.Op != "write" {
                     logkit.Errorf("[ServerCopy] src:%s --> dst:%s write error %s", src.LocalAddr().String(), dst.RemoteAddr().String(), err.Error())
                     return
                 }

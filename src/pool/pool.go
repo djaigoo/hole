@@ -528,7 +528,7 @@ func Start(addr string, size int, config *tls.Config) {
             return NewConn(conn), nil
         },
         OnClose: func(conn *Conn) error {
-            logkit.Debugf("[Pool] Close Conn %s", conn.LocalAddr().String())
+            logkit.Warnf("[Pool] OnClose Conn %s, read bytes:%d, write bytes:%d", conn.LocalAddr().String(), conn.readBytes, conn.writeBytes)
             return nil
         },
         PoolSize:           size, // max pool conn nums

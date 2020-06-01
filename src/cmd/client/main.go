@@ -30,6 +30,7 @@ var (
     debug      bool
     udp        bool
     psize      int
+    mode       string
 )
 
 func init() {
@@ -39,6 +40,7 @@ func init() {
     flag.BoolVar(&debug, "debug", false, "是否打印调试日志")
     flag.BoolVar(&udp, "udp", false, "是否启动udp")
     flag.IntVar(&psize, "psize", 100, "连接池大小")
+    flag.StringVar(&mode, "mode", "tls", "连接模式")
     flag.Parse()
 }
 
@@ -96,6 +98,9 @@ func main() {
     // config.Rand = rand.Reader
     // config.Certificates = append(config.Certificates, cert)
     config.InsecureSkipVerify = true // 跳过安全验证，可以输入与证书不同的域名
+    if mode == "tcp" {
+        config = nil
+    }
     
     // start connect pool
     pool.Start(addr, psize, config)
@@ -315,6 +320,7 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
     go func() {
         defer wg.Done()
         n1, err := io.Copy(dst, src)
+        dst.AddWriteBytes(n1)
         logkit.Infof("[ClientCopy] src:%s --> dst:%s write over %d byte", src.RemoteAddr().String(), dst.LocalAddr().String(), n1)
         if err != nil {
             // only write dst error return
@@ -337,10 +343,12 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
     go func() {
         defer wg.Done()
         n2, err := io.Copy(src, dst)
+        dst.AddReadBytes(n2)
         logkit.Infof("[ClientCopy] dst:%s --> src:%s write over %d byte", dst.LocalAddr().String(), src.RemoteAddr().String(), n2)
         if err != nil {
             if operr, ok := err.(*net.OpError); ok {
-                if operr.Op != "write" || operr.Err.Error() != "interrupt" {
+                // keep dst: src write error or dst read interrupt
+                if operr.Op != "write" && operr.Err != pool.ErrInterrupt {
                     logkit.Errorf("[ClientCopy] dst:%s --> src:%s write error %s", dst.LocalAddr().String(), src.RemoteAddr().String(), err.Error())
                     return
                 }

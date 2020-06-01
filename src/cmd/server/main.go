@@ -27,20 +27,22 @@ func init() {
 }
 
 func main() {
-    logkit.SingleFileLog("", "log", logkit.LevelDebug)
-    defer func() {
-        // del redis data
-        dao.RedisDao.DelConnectKey()
-        
-        logkit.Exit()
-    }()
-    
     var err error
     conf, err = confs.ReadConfigFile(confpath)
     if err != nil {
         logkit.Error(err.Error())
         return
     }
+    
+    if !conf.Debug {
+        logkit.SingleFileLog("", "log", logkit.LevelDebug)
+    }
+    defer func() {
+        // del redis data
+        dao.RedisDao.DelConnectKey()
+        
+        logkit.Exit()
+    }()
     
     crtContent, err = ioutil.ReadFile(conf.ServerCrtFile)
     if err != nil {
@@ -61,20 +63,24 @@ func main() {
     }
     defer listener.Close()
     
-    cm := cmux.New(listener)
-    tlsListener := cm.Match(cmux.TLS())
-    httpListener := cm.Match(cmux.HTTP1())
-    
-    go tlsServer(tlsListener)
-    go httpServer(httpListener)
-    time.Sleep(100 * time.Millisecond)
-    go cm.Serve()
-    
-    if conf.Admin {
-        if conf.Pprof {
-            openPProf()
+    if conf.Mode == "tcp" {
+        go tcpServer(listener)
+    } else {
+        cm := cmux.New(listener)
+        tlsListener := cm.Match(cmux.TLS())
+        httpListener := cm.Match(cmux.HTTP1())
+        
+        go tlsServer(tlsListener)
+        go httpServer(httpListener)
+        time.Sleep(100 * time.Millisecond)
+        go cm.Serve()
+        
+        if conf.Admin {
+            if conf.Pprof {
+                openPProf()
+            }
+            go adminServer(conf.AdminPort, conf.RedisAddr, conf.RedisPassword)
         }
-        go adminServer(conf.AdminPort, conf.RedisAddr, conf.RedisPassword)
     }
     
     logkit.Infof("[main] start sever")

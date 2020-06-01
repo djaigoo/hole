@@ -19,12 +19,18 @@ type closeWriter interface {
     CloseWrite() error
 }
 
-var (
-    ErrInterrupt = errors.New("interrupt")
-    ErrClosed    = errors.New("closed")
-    ErrVersion   = errors.New("version")
-    ErrLength    = errors.New("length")
-    ErrCommand   = errors.New("command")
+type opErr string
+
+func (oe opErr) Error() string {
+    return string(oe)
+}
+
+const (
+    ErrInterrupt = opErr("interrupt")
+    ErrClosed    = opErr("closed")
+    ErrVersion   = opErr("version")
+    ErrLength    = opErr("length")
+    ErrCommand   = opErr("command")
 )
 
 func CheckErr(err error) bool {
@@ -99,6 +105,9 @@ type Conn struct {
     pooled    bool
     createdAt time.Time
     usedAt    atomic.Value
+    
+    readBytes  int64
+    writeBytes int64
 }
 
 func NewConn(conn net.Conn) *Conn {
@@ -274,7 +283,7 @@ func (c *Conn) Start() error {
 }
 
 func (c *Conn) Interrupt(timeout time.Duration) error {
-    logkit.Debugf("[read] call Interrupt cur:%s status %s", c.LocalAddr().String(), c.status)
+    logkit.Debugf("[read] call Interrupt cur:%s->%s status %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.status)
     if c.status == TransInterrupt || c.status == TransInterruptAck {
         return nil
     }
@@ -289,7 +298,7 @@ func (c *Conn) Interrupt(timeout time.Duration) error {
 }
 
 func (c *Conn) CloseWrite() error {
-    logkit.Debugf("[read] call CloseWrite cur:%s status %s", c.LocalAddr().String(), c.status)
+    logkit.Debugf("[read] call CloseWrite cur:%s->%s status %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.status)
     if c.status == TransCloseAck {
         return nil
     }
@@ -298,7 +307,7 @@ func (c *Conn) CloseWrite() error {
 }
 
 func (c *Conn) Close() error {
-    logkit.Debugf("[read] call Close cur:%s status %s", c.LocalAddr().String(), c.status)
+    logkit.Debugf("[read] call Close cur:%s->%s status %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.status)
     if c.status == TransCloseAck {
         return nil
     }
@@ -342,4 +351,12 @@ func (c *Conn) UsedAt() time.Time {
 
 func (c *Conn) SetUsedAt(tm time.Time) {
     c.usedAt.Store(tm)
+}
+
+func (c *Conn) AddWriteBytes(n int64) {
+    atomic.AddInt64(&c.writeBytes, n)
+}
+
+func (c *Conn) AddReadBytes(n int64) {
+    atomic.AddInt64(&c.readBytes, n)
 }
