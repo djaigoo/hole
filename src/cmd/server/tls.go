@@ -46,7 +46,11 @@ func handle(conn *pool.Conn) {
     close := true
     defer func() {
         if close {
-            conn.Close()
+            err := conn.Close()
+            if err != nil {
+                logkit.Errorf("[handle] Close pool conn %s error %s", conn.RemoteAddr().String(), err.Error())
+                return
+            }
         }
     }()
     dao.RedisDao.AddConnect(conn.RemoteAddr().String())
@@ -171,6 +175,10 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
                     return
                 }
             }
+        }
+        
+        if err == nil {
+            return
         }
         
         err = src.Interrupt(10 * time.Second)

@@ -344,6 +344,10 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
             }
         }
         
+        if err == nil {
+            return
+        }
+        
         err = dst.Interrupt(10 * time.Second)
         if err != nil {
             logkit.Errorf("[ClientCopy] dst:%s --> src:%s send interrupt error %s", dst.LocalAddr().String(), src.RemoteAddr().String(), err.Error())
