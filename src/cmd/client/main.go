@@ -365,7 +365,7 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
     if back1 && back2 {
         pool.Put(dst)
     } else {
-        logkit.Errorf("[ClientCopy] Remove conn back1:%v back2:%v", back1, back2)
+        // logkit.Errorf("[ClientCopy] Remove conn back1:%v back2:%v", back1, back2)
         pool.Remove(dst)
     }
     logkit.Infof("[ClientCopy] OVER")

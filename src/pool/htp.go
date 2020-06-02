@@ -1,6 +1,7 @@
 package pool
 
 import (
+    "context"
     "encoding/binary"
     "github.com/djaigoo/logkit"
     "github.com/pkg/errors"
@@ -96,13 +97,10 @@ type Conn struct {
     readErr  error
     readLock sync.Mutex
     
+    chInterruptAck  chan bool
     heartbeatTicker *time.Ticker
-    
-    chInterruptAck chan bool
-    
-    closed chan struct{}
-    
-    rdLocked bool
+    ctx             context.Context
+    cancel          context.CancelFunc
     
     Inited    bool
     pooled    bool
@@ -123,16 +121,14 @@ func NewConn(conn net.Conn) *Conn {
         readBuf:         make([]byte, 0, 2048),
         heartbeatTicker: time.NewTicker(30 * time.Second),
         chInterruptAck:  make(chan bool),
-        closed:          make(chan struct{}),
         createdAt:       time.Now(),
         usedAt:          atomic.Value{},
     }
+    c.ctx, c.cancel = context.WithCancel(context.Background())
     c.usedAt.Store(time.Now())
     go func() {
         defer func() {
-            c.heartbeatTicker.Stop()
-            c.closed <- struct{}{}
-            logkit.Emergencyf("heartbeat ticker stop")
+            c.cancel()
         }()
         for {
             c.readErr = c.read()
@@ -152,14 +148,7 @@ func NewConn(conn net.Conn) *Conn {
 }
 
 func (c *Conn) read() (err error) {
-    defer logkit.Debugf("read over conn:%s->%s status %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.status)
-    // if c.status == TransClose || c.status == TransCloseAck || c.status == TransCloseWrite {
-    //     return ErrClosed
-    // }
-    // if len(c.readBuf) != 0 {
-    //     // buf full
-    //     return nil
-    // }
+    // defer logkit.Debugf("read over conn:%s->%s status %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.status)
     head := make([]byte, 6)
     n, err := c.conn.Read(head)
     if err != nil {
@@ -218,23 +207,12 @@ func (c *Conn) read() (err error) {
         if err != nil {
             return err
         }
-        
-        // if c.status == TransClose || c.status == TransCloseAck || c.status == TransCloseWrite {
         c.conn.Close()
         return io.EOF
-        // } else {
-        //     c.status = TransClose
-        //     return nil
-        // }
     case TransCloseAck:
         logkit.Warnf("[read] TransCloseAck from %s -> %s", c.conn.RemoteAddr().String(), c.conn.LocalAddr().String())
-        // if c.status == TransClose || c.status == TransCloseAck || c.status == TransCloseWrite {
         c.conn.Close()
         return io.EOF
-        // } else {
-        //     c.status = TransCloseAck
-        //     return nil
-        // }
     case TransCloseWrite:
         logkit.Warnf("[read] TransCloseWrite from %s -> %s", c.conn.RemoteAddr().String(), c.conn.LocalAddr().String())
         c.status = TransCloseWrite
@@ -245,14 +223,8 @@ func (c *Conn) read() (err error) {
         if wconn, ok := c.conn.(closeWriter); ok {
             return wconn.CloseWrite()
         }
-        
-        // if c.status == TransClose || c.status == TransCloseAck || c.status == TransCloseWrite {
         c.conn.Close()
         return io.EOF
-        // } else {
-        //     c.status = TransClose
-        //     return nil
-        // }
     default:
         logkit.Errorf("[read] invalid cmd")
         return ErrCommand
@@ -266,10 +238,6 @@ func (c *Conn) Read(b []byte) (n int, err error) {
             return 0, c.readErr
         }
         time.Sleep(100 * time.Millisecond)
-        // err = c.read()
-        // if err != nil {
-        //     return 0, err
-        // }
     }
     
     if len(c.readBuf) > len(b) {
@@ -312,7 +280,7 @@ func (c *Conn) sendCmd(id cmd) error {
 }
 
 func (c *Conn) Heartbeat() error {
-    defer logkit.Warnf("conn %s->%s stop heartbeat", c.LocalAddr().String(), c.RemoteAddr().String())
+    defer logkit.Warnf("[Heartbeat] conn %s->%s stop heartbeat", c.LocalAddr().String(), c.RemoteAddr().String())
     for {
         select {
         case <-c.heartbeatTicker.C:
@@ -320,7 +288,7 @@ func (c *Conn) Heartbeat() error {
             if err != nil {
                 return err
             }
-        case <-c.closed:
+        case <-c.ctx.Done():
             return ErrClosed
         }
     }
@@ -361,9 +329,6 @@ func (c *Conn) Close() error {
 
 // WaitInterruptAck block until recv interrupt
 func (c *Conn) waitInterruptAck(timeout time.Duration) bool {
-    // timer := timers.Get().(*time.Timer)
-    // timer.Reset(timeout)
-    // defer timers.Put(timer)
     select {
     case <-time.After(timeout):
         return false

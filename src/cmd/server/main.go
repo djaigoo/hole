@@ -115,15 +115,15 @@ func handle(conn *pool.Conn) {
             logkit.Errorf("[handle] GetAttrByConn conn:%s %s", conn.RemoteAddr().String(), err.Error())
             return
         }
-        // // interrupt waiting ...
-        // for err == pool.ErrInterrupt {
-        //     time.Sleep(500 * time.Millisecond)
-        //     attr, err = socks5.GetAttrByConn(conn)
-        //     if pool.CheckErr(err) {
-        //         logkit.Errorf("[handle] GetAttrByConn conn:%s %s", conn.RemoteAddr().String(), err.Error())
-        //         return
-        //     }
-        // }
+        // interrupt waiting ...
+        for err == pool.ErrInterrupt {
+            time.Sleep(500 * time.Millisecond)
+            attr, err = socks5.GetAttrByConn(conn)
+            if pool.CheckErr(err) {
+                logkit.Errorf("[handle] GetAttrByConn conn:%s %s", conn.RemoteAddr().String(), err.Error())
+                return
+            }
+        }
     }
     if attr == nil {
         logkit.Errorf("[handle] attr is nil")
