@@ -524,19 +524,19 @@ func Start(addr string, size int, config *tls.Config) {
             if err != nil {
                 return nil, err
             }
-            logkit.Debugf("[Pool] New Conn %s", conn.LocalAddr().String())
+            logkit.Alertf("[Pool] New Conn %s", conn.LocalAddr().String())
             return NewConn(conn), nil
         },
         OnClose: func(conn *Conn) error {
-            logkit.Warnf("[Pool] OnClose Conn %s, read bytes:%d, write bytes:%d", conn.LocalAddr().String(), conn.readBytes, conn.writeBytes)
+            logkit.Alertf("[Pool] OnClose Conn %s, read bytes:%d, write bytes:%d", conn.LocalAddr().String(), conn.readBytes, conn.writeBytes)
             return nil
         },
         PoolSize:           size, // max pool conn nums
         MinIdleConns:       0,
         MaxConnAge:         24 * time.Hour,  // check create time
         PoolTimeout:        5 * time.Second, // pool get time out
-        IdleTimeout:        5 * time.Minute, // check use at time
-        IdleCheckFrequency: 10 * time.Second,
+        IdleTimeout:        1 * time.Minute, // check use at time
+        IdleCheckFrequency: 30 * time.Second,
     }
     Pool = NewConnPool(opt)
     go func() {

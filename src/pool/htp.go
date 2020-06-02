@@ -100,6 +100,8 @@ type Conn struct {
     
     chInterruptAck chan bool
     
+    closed chan struct{}
+    
     rdLocked bool
     
     Inited    bool
@@ -119,24 +121,45 @@ func NewConn(conn net.Conn) *Conn {
         conn:            conn,
         status:          TransInterrupt,
         readBuf:         make([]byte, 0, 2048),
-        heartbeatTicker: time.NewTicker(10 * time.Second),
+        heartbeatTicker: time.NewTicker(30 * time.Second),
         chInterruptAck:  make(chan bool),
+        closed:          make(chan struct{}),
         createdAt:       time.Now(),
         usedAt:          atomic.Value{},
     }
     c.usedAt.Store(time.Now())
+    go func() {
+        defer func() {
+            c.heartbeatTicker.Stop()
+            c.closed <- struct{}{}
+            logkit.Emergencyf("heartbeat ticker stop")
+        }()
+        for {
+            c.readErr = c.read()
+            if c.readErr != nil {
+                if c.readErr == io.EOF {
+                    return
+                }
+                if operr, ok := c.readErr.(*net.OpError); ok {
+                    logkit.Errorf("read conn:%s->%s error %s", c.LocalAddr().String(), c.RemoteAddr().String(), operr.Error())
+                    return
+                }
+            }
+        }
+    }()
     go c.Heartbeat()
     return c
 }
 
 func (c *Conn) read() (err error) {
-    if c.status == TransClose || c.status == TransCloseAck || c.status == TransCloseWrite {
-        return ErrClosed
-    }
-    if len(c.readBuf) != 0 {
-        // buf full
-        return nil
-    }
+    defer logkit.Debugf("read over conn:%s->%s status %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.status)
+    // if c.status == TransClose || c.status == TransCloseAck || c.status == TransCloseWrite {
+    //     return ErrClosed
+    // }
+    // if len(c.readBuf) != 0 {
+    //     // buf full
+    //     return nil
+    // }
     head := make([]byte, 6)
     n, err := c.conn.Read(head)
     if err != nil {
@@ -185,6 +208,8 @@ func (c *Conn) read() (err error) {
     case TransInterruptAck:
         logkit.Warnf("[read] TransInterruptAck from %s -> %s", c.conn.RemoteAddr().String(), c.conn.LocalAddr().String())
         c.status = TransInterruptAck
+        // 清理脏数据
+        c.readBuf = c.readBuf[len(c.readBuf):]
         c.chInterruptAck <- true
         return ErrInterrupt
     case TransClose:
@@ -194,28 +219,22 @@ func (c *Conn) read() (err error) {
             return err
         }
         
-        if c.status == TransClose || c.status == TransCloseAck || c.status == TransCloseWrite {
-            c.heartbeatTicker.Stop()
-            c.conn.Close()
-            return io.EOF
-        } else {
-            c.status = TransClose
-            return nil
-        }
+        // if c.status == TransClose || c.status == TransCloseAck || c.status == TransCloseWrite {
+        c.conn.Close()
+        return io.EOF
+        // } else {
+        //     c.status = TransClose
+        //     return nil
+        // }
     case TransCloseAck:
         logkit.Warnf("[read] TransCloseAck from %s -> %s", c.conn.RemoteAddr().String(), c.conn.LocalAddr().String())
-        if c.status == TransClose || c.status == TransCloseAck || c.status == TransCloseWrite {
-            c.heartbeatTicker.Stop()
-            if wconn, ok := c.conn.(closeWriter); ok {
-                wconn.CloseWrite()
-            } else {
-                c.conn.Close()
-            }
-            return io.EOF
-        } else {
-            c.status = TransCloseAck
-            return nil
-        }
+        // if c.status == TransClose || c.status == TransCloseAck || c.status == TransCloseWrite {
+        c.conn.Close()
+        return io.EOF
+        // } else {
+        //     c.status = TransCloseAck
+        //     return nil
+        // }
     case TransCloseWrite:
         logkit.Warnf("[read] TransCloseWrite from %s -> %s", c.conn.RemoteAddr().String(), c.conn.LocalAddr().String())
         c.status = TransCloseWrite
@@ -227,14 +246,13 @@ func (c *Conn) read() (err error) {
             return wconn.CloseWrite()
         }
         
-        if c.status == TransClose || c.status == TransCloseAck || c.status == TransCloseWrite {
-            c.heartbeatTicker.Stop()
-            c.conn.Close()
-            return io.EOF
-        } else {
-            c.status = TransClose
-            return nil
-        }
+        // if c.status == TransClose || c.status == TransCloseAck || c.status == TransCloseWrite {
+        c.conn.Close()
+        return io.EOF
+        // } else {
+        //     c.status = TransClose
+        //     return nil
+        // }
     default:
         logkit.Errorf("[read] invalid cmd")
         return ErrCommand
@@ -243,11 +261,15 @@ func (c *Conn) read() (err error) {
 
 func (c *Conn) Read(b []byte) (n int, err error) {
     // logkit.Infof("call Read cur:%s->%s status %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.status)
-    if len(c.readBuf) == 0 {
-        err = c.read()
-        if err != nil {
-            return 0, err
+    for len(c.readBuf) == 0 {
+        if c.readErr != nil {
+            return 0, c.readErr
         }
+        time.Sleep(100 * time.Millisecond)
+        // err = c.read()
+        // if err != nil {
+        //     return 0, err
+        // }
     }
     
     if len(c.readBuf) > len(b) {
@@ -290,13 +312,18 @@ func (c *Conn) sendCmd(id cmd) error {
 }
 
 func (c *Conn) Heartbeat() error {
-    for range c.heartbeatTicker.C {
-        err := c.sendCmd(TransHeartbeat)
-        if err != nil {
-            return err
+    defer logkit.Warnf("conn %s->%s stop heartbeat", c.LocalAddr().String(), c.RemoteAddr().String())
+    for {
+        select {
+        case <-c.heartbeatTicker.C:
+            err := c.sendCmd(TransHeartbeat)
+            if err != nil {
+                return err
+            }
+        case <-c.closed:
+            return ErrClosed
         }
     }
-    return nil
 }
 
 func (c *Conn) Interrupt(timeout time.Duration) error {
@@ -334,11 +361,14 @@ func (c *Conn) Close() error {
 
 // WaitInterruptAck block until recv interrupt
 func (c *Conn) waitInterruptAck(timeout time.Duration) bool {
+    // timer := timers.Get().(*time.Timer)
+    // timer.Reset(timeout)
+    // defer timers.Put(timer)
     select {
-    case <-c.chInterruptAck:
-        return true
     case <-time.After(timeout):
         return false
+    case <-c.chInterruptAck:
+        return true
     }
 }
 
@@ -376,4 +406,8 @@ func (c *Conn) AddWriteBytes(n int64) {
 
 func (c *Conn) AddReadBytes(n int64) {
     atomic.AddInt64(&c.readBytes, n)
+}
+
+func (c *Conn) Status() cmd {
+    return c.status
 }
