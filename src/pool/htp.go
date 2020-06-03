@@ -136,8 +136,12 @@ func NewConn(conn net.Conn) *Conn {
                 if c.readErr == io.EOF {
                     return
                 }
+                if c.readErr == io.ErrUnexpectedEOF {
+                    logkit.Errorf("[NewConn] read conn:%s->%s error %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.readErr.Error())
+                    return
+                }
                 if operr, ok := c.readErr.(*net.OpError); ok {
-                    logkit.Errorf("read conn:%s->%s error %s", c.LocalAddr().String(), c.RemoteAddr().String(), operr.Error())
+                    logkit.Errorf("[NewConn] read conn:%s->%s error %s", c.LocalAddr().String(), c.RemoteAddr().String(), operr.Error())
                     return
                 }
             }
@@ -152,7 +156,7 @@ func (c *Conn) read() (err error) {
     head := make([]byte, 6)
     n, err := c.conn.Read(head)
     if err != nil {
-        logkit.Errorf("[read] head error %s", err.Error())
+        logkit.Errorf("[read] conn:%s->%s head error %s", c.LocalAddr().String(), c.RemoteAddr().String(), err.Error())
         return err
     }
     if n < 6 {

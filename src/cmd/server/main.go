@@ -103,6 +103,7 @@ func handle(conn *pool.Conn) {
                 logkit.Errorf("[handle] Close pool conn %s error %s", conn.RemoteAddr().String(), err.Error())
                 return
             }
+            logkit.Infof("[handle] Client %s Connection Closed.....", conn.RemoteAddr().String())
         }
     }()
     dao.RedisDao.AddConnect(conn.RemoteAddr().String())
@@ -193,7 +194,6 @@ func handle(conn *pool.Conn) {
     logkit.Debugf("[handle] get remote %s", remote.RemoteAddr().String())
     
     _, _, close = ServerCopy(remote, conn)
-    logkit.Infof("[handle] Client %s Connection Closed.....", conn.RemoteAddr().String())
 }
 
 // src --> pool
@@ -213,6 +213,9 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
                     logkit.Errorf("[ServerCopy] src:%s --> dst:%s write error %s", src.LocalAddr().String(), dst.RemoteAddr().String(), err.Error())
                     return
                 }
+            } else {
+                logkit.Errorf("[ServerCopy] src:%s --> dst:%s write error %s", src.LocalAddr().String(), dst.RemoteAddr().String(), err.Error())
+                return
             }
         }
         // src io.EOF
@@ -241,13 +244,16 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
                     logkit.Errorf("[ServerCopy] dst:%s --> src:%s write error %s", dst.RemoteAddr().String(), src.LocalAddr().String(), err.Error())
                     return
                 }
+            } else {
+                logkit.Errorf("[ServerCopy] dst:%s --> src:%s write error %s", dst.RemoteAddr().String(), src.LocalAddr().String(), err.Error())
+                return
             }
         }
         
         err = src.Interrupt(10 * time.Second)
         if err != nil {
             if src.Status() != pool.TransInterrupt && src.Status() != pool.TransInterruptAck {
-                logkit.Errorf("[ServerCopy] close write conn1 send interrupt error %s", err.Error())
+                logkit.Errorf("[ServerCopy] dst:%s --> src:%s send interrupt error %s", err.Error())
                 return
             }
         }
@@ -259,7 +265,7 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
         go handle(src)
         close = false
     } else {
-        logkit.Errorf("[ServerCopy] Remove conn active1:%v active2:%v", active1, active2)
+        // logkit.Errorf("[ServerCopy] Remove conn active1:%v active2:%v", active1, active2)
         close = true
     }
     logkit.Infof("[ServerCopy] OVER")

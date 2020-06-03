@@ -36,11 +36,14 @@ type Stats struct {
     IdleConns uint32 // number of idle connections in the pool
     // 过期连接数
     StaleConns uint32 // number of stale connections removed from the pool
+    
+    // 移除连接数
+    RemoveConns uint32
 }
 
 func (s *Stats) String() string {
-    return fmt.Sprintf("Hits:%d Misses:%d Timeouts:%d TotalConns:%d IdleConns:%d StaleConns:%d",
-        s.Hits, s.Misses, s.Timeouts, s.TotalConns, s.IdleConns, s.StaleConns)
+    return fmt.Sprintf("Hits:%d Misses:%d Timeouts:%d TotalConns:%d IdleConns:%d StaleConns:%d RemoveConns:%d",
+        s.Hits, s.Misses, s.Timeouts, s.TotalConns, s.IdleConns, s.StaleConns, s.RemoveConns)
 }
 
 type Pooler interface {
@@ -319,6 +322,7 @@ func (p *ConnPool) Put(cn *Conn) {
 
 // Remove 从pool中移除cn 并 close
 func (p *ConnPool) Remove(cn *Conn) error {
+    atomic.AddUint32(&p.stats.RemoveConns, 1)
     p.removeConn(cn)
     if cn.pooled {
         p.freeTurn()
@@ -382,6 +386,8 @@ func (p *ConnPool) Stats() *Stats {
         TotalConns: uint32(p.Len()),
         IdleConns:  uint32(idleLen),
         StaleConns: atomic.LoadUint32(&p.stats.StaleConns),
+        
+        RemoveConns: atomic.LoadUint32(&p.stats.RemoveConns),
     }
 }
 
@@ -519,7 +525,7 @@ func Start(addr string, size int, config *tls.Config) {
             if config == nil {
                 conn, err = net.DialTimeout("tcp", addr, 5*time.Second)
             } else {
-                conn, err = tls.Dial("tcp", addr, config)
+                conn, err = tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 1 * time.Minute}, "tcp", addr, config)
             }
             if err != nil {
                 return nil, err
@@ -533,9 +539,9 @@ func Start(addr string, size int, config *tls.Config) {
         },
         PoolSize:           size, // max pool conn nums
         MinIdleConns:       0,
-        MaxConnAge:         24 * time.Hour,  // check create time
-        PoolTimeout:        5 * time.Second, // pool get time out
-        IdleTimeout:        1 * time.Minute, // check use at time
+        MaxConnAge:         24 * time.Hour,   // check create time
+        PoolTimeout:        5 * time.Second,  // pool get time out
+        IdleTimeout:        10 * time.Minute, // check use at time
         IdleCheckFrequency: 30 * time.Second,
     }
     Pool = NewConnPool(opt)

@@ -119,43 +119,45 @@ func main() {
         }
     }()
     if udp {
-        go func() {
-            port := conf.LocalPort
-            logkit.Infof("[main] start listen udp port %d", port)
-            ulistener, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: port})
-            if err != nil {
-                logkit.Infof("[main] listenUDP error %s", err.Error())
-                return
-            }
-            defer ulistener.Close()
-            
-            data := make([]byte, 2048)
-            for {
-                n, addr, err := ulistener.ReadFromUDP(data)
-                if err != nil {
-                    logkit.Errorf("[main] udp read from error %s", err.Error())
-                    return
-                }
-                // logkit.Infof("get udp remote %s msg %#v", addr.String(), data[:n])
-                if n < 3 {
-                    return
-                }
-                msg := make([]byte, n)
-                copy(msg, data[:n])
-                go handleUDP(addr, msg)
-            }
-        }()
+        go startUDP(conf.LocalPort)
     }
     
     logkit.Infof("[main] client quit with signal %d", util.Signal())
 }
 
-func handleUDP(addr *net.UDPAddr, data []byte) {
+func startUDP(port int) {
+    logkit.Infof("[main] start listen udp port %d", port)
+    conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: port})
+    if err != nil {
+        logkit.Infof("[main] listenUDP error %s", err.Error())
+        return
+    }
+    defer conn.Close()
+    
+    data := make([]byte, 2048)
+    for {
+        n, addr, err := conn.ReadFromUDP(data)
+        if err != nil {
+            logkit.Errorf("[main] udp read from error %s", err.Error())
+            return
+        }
+        // logkit.Infof("get udp remote %s msg %#v", addr.String(), data[:n])
+        if n < 3 {
+            return
+        }
+        msg := make([]byte, n)
+        copy(msg, data[:n])
+        
+        go handleUDP(conn, addr, msg)
+    }
+}
+
+func handleUDP(conn *net.UDPConn, addr *net.UDPAddr, data []byte) {
     n := len(data)
     site := 0
     site += 2
     flag := data[site]
-    flag = flag
+    _ = flag
     site++
     atyp := data[site]
     site++
@@ -192,36 +194,38 @@ func handleUDP(addr *net.UDPAddr, data []byte) {
         host = net.IP(addr).String() + ":" + strconv.Itoa(int(binary.BigEndian.Uint16(port)))
     }
     
-    logkit.Infof("dial to host %s", host)
+    logkit.Debugf("[handleUDP] dial udp to host %s", host)
     raddr, err := net.ResolveUDPAddr("udp", host)
     if err != nil {
-        logkit.Errorf("%s", err.Error())
+        logkit.Errorf("[handleUDP] ResolveUDPAddr error %s", err.Error())
         return
     }
+    
     uconn, err := net.DialUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0}, raddr)
     if err != nil {
-        logkit.Errorf("%s", err.Error())
+        logkit.Errorf("[handleUDP] DialUDP raddr:%s error %s", raddr, err.Error())
         return
     }
     defer uconn.Close()
-    uconn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+    uconn.SetWriteDeadline(time.Now().Add(10 * time.Second))
     n, err = uconn.Write(data[site:])
     if err != nil {
-        logkit.Errorf("%s", err.Error())
+        logkit.Errorf("[handleUDP] write uconn:%s->%s error %s", uconn.LocalAddr().String(), uconn.RemoteAddr().String(), err.Error())
         return
     }
     msg := make([]byte, 2048)
-    uconn.SetReadDeadline(time.Now().Add(5 * time.Second))
+    uconn.SetReadDeadline(time.Now().Add(10 * time.Second))
     n, err = uconn.Read(msg)
     if err != nil {
-        logkit.Errorf("%s", err.Error())
+        logkit.Errorf("[handleUDP] read uconn:%s->%s error %s", uconn.LocalAddr().String(), uconn.RemoteAddr().String(), err.Error())
         return
     }
-    logkit.Infof("write to udp %s --> %s %d byte", addr.String(), raddr.String(), n)
-    uconn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-    _, err = uconn.WriteToUDP(append(data[:site], msg[:n]...), addr)
+    logkit.Debugf("[handleUDP] write to udp %s --> %s %d byte", addr.String(), raddr.String(), n)
+    
+    conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+    _, err = conn.WriteToUDP(append(data[:site], msg[:n]...), addr)
     if err != nil {
-        logkit.Errorf("%s", err.Error())
+        logkit.Errorf("[handleUDP] write udp conn:%s->%s error %s", conn.LocalAddr().String(), conn.RemoteAddr().String(), err.Error())
         return
     }
 }
@@ -284,7 +288,7 @@ func handle(conn net.Conn) {
         return
     }
     
-    logkit.Infof("[handle] client connect %s --> %s", conn.LocalAddr().String(), server.RemoteAddr().String())
+    logkit.Infof("[handle] client connect %s --> %s", conn.RemoteAddr().String(), server.LocalAddr().String())
     
     _, err = server.Write(rawAddr)
     if err != nil {
@@ -297,7 +301,7 @@ func handle(conn net.Conn) {
     logkit.Warnf("[handle] conn info %s --> %s", conn.RemoteAddr().String(), conn.LocalAddr().String())
     _, _ = ClientCopy(server, conn)
     
-    logkit.Debugf("[handle] close conn %s remote %s", conn.RemoteAddr().String(), server.RemoteAddr().String())
+    logkit.Debugf("[handle] close conn %s remote %s", conn.RemoteAddr().String(), server.LocalAddr().String())
 }
 
 // dst --> pool
@@ -318,6 +322,9 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
                     logkit.Errorf("[ClientCopy] src:%s --> dst:%s write error %s", src.RemoteAddr().String(), dst.LocalAddr().String(), err.Error())
                     return
                 }
+            } else {
+                logkit.Errorf("[ClientCopy] src:%s --> dst:%s write error %s", src.RemoteAddr().String(), dst.LocalAddr().String(), err.Error())
+                return
             }
         }
         // src EOF
@@ -343,6 +350,9 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
                     logkit.Errorf("[ClientCopy] dst:%s --> src:%s write error %s", dst.LocalAddr().String(), src.RemoteAddr().String(), err.Error())
                     return
                 }
+            } else {
+                logkit.Errorf("[ClientCopy] dst:%s --> src:%s write error %s", dst.LocalAddr().String(), src.RemoteAddr().String(), err.Error())
+                return
             }
         }
         
