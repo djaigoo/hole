@@ -218,6 +218,10 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
                 return
             }
         }
+        if src.Status() == pool.TransCloseWrite || src.Status() == pool.TransClose || src.Status() == pool.TransCloseAck {
+            logkit.Noticef("[ClientCopy] dst:%s status:%s", dst.LocalAddr().String(), src.Status())
+            return
+        }
         // src io.EOF
         if err == nil {
             return
@@ -250,6 +254,10 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
             }
         }
         
+        if src.Status() == pool.TransCloseWrite || src.Status() == pool.TransClose || src.Status() == pool.TransCloseAck {
+            logkit.Noticef("[ClientCopy] dst:%s status:%s", dst.LocalAddr().String(), src.Status())
+            return
+        }
         err = src.Interrupt(10 * time.Second)
         if err != nil {
             if src.Status() != pool.TransInterrupt && src.Status() != pool.TransInterruptAck {

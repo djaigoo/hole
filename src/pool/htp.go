@@ -133,17 +133,22 @@ func NewConn(conn net.Conn) *Conn {
         for {
             c.readErr = c.read()
             if c.readErr != nil {
+                if c.readErr == ErrInterrupt {
+                    continue
+                }
                 if c.readErr == io.EOF {
                     return
                 }
-                if c.readErr == io.ErrUnexpectedEOF {
-                    logkit.Errorf("[NewConn] read conn:%s->%s error %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.readErr.Error())
-                    return
-                }
-                if operr, ok := c.readErr.(*net.OpError); ok {
-                    logkit.Errorf("[NewConn] read conn:%s->%s error %s", c.LocalAddr().String(), c.RemoteAddr().String(), operr.Error())
-                    return
-                }
+                logkit.Errorf("[NewConn] read conn:%s->%s error %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.readErr.Error())
+                return
+                // if c.readErr == io.ErrUnexpectedEOF {
+                //     logkit.Errorf("[NewConn] read conn:%s->%s error %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.readErr.Error())
+                //     return
+                // }
+                // if operr, ok := c.readErr.(*net.OpError); ok {
+                //     logkit.Errorf("[NewConn] read conn:%s->%s error %s", c.LocalAddr().String(), c.RemoteAddr().String(), operr.Error())
+                //     return
+                // }
             }
         }
     }()
@@ -207,6 +212,7 @@ func (c *Conn) read() (err error) {
         return ErrInterrupt
     case TransClose:
         logkit.Warnf("[read] TransClose from %s -> %s", c.conn.RemoteAddr().String(), c.conn.LocalAddr().String())
+        c.status = TransClose
         _, err = c.conn.Write([]byte{VER, byte(TransCloseAck), 0, 0, 0, 0})
         if err != nil {
             return err
@@ -215,6 +221,7 @@ func (c *Conn) read() (err error) {
         return io.EOF
     case TransCloseAck:
         logkit.Warnf("[read] TransCloseAck from %s -> %s", c.conn.RemoteAddr().String(), c.conn.LocalAddr().String())
+        c.status = TransCloseAck
         c.conn.Close()
         return io.EOF
     case TransCloseWrite:
@@ -237,11 +244,14 @@ func (c *Conn) read() (err error) {
 
 func (c *Conn) Read(b []byte) (n int, err error) {
     // logkit.Infof("call Read cur:%s->%s status %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.status)
+    if c.readErr != nil {
+        return 0, c.readErr
+    }
     for len(c.readBuf) == 0 {
+        time.Sleep(100 * time.Millisecond)
         if c.readErr != nil {
             return 0, c.readErr
         }
-        time.Sleep(100 * time.Millisecond)
     }
     
     if len(c.readBuf) > len(b) {

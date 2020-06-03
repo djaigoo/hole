@@ -306,7 +306,7 @@ func handle(conn net.Conn) {
 
 // dst --> pool
 func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
-    back1 := false // 默认dst连接直接remove
+    back1 := false // 默认dst连接直接remove 改成状态值 退出Copy时检测
     back2 := false
     wg := new(sync.WaitGroup)
     wg.Add(2)
@@ -326,6 +326,10 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
                 logkit.Errorf("[ClientCopy] src:%s --> dst:%s write error %s", src.RemoteAddr().String(), dst.LocalAddr().String(), err.Error())
                 return
             }
+        }
+        if dst.Status() == pool.TransCloseWrite || dst.Status() == pool.TransClose || dst.Status() == pool.TransCloseAck {
+            logkit.Noticef("[ClientCopy] dst:%s status:%s", dst.LocalAddr().String(), dst.Status())
+            return
         }
         // src EOF
         err = dst.Interrupt(10 * time.Second)
@@ -358,6 +362,12 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
         
         // dst io.EOF
         if err == nil {
+            logkit.Noticef("[ClientCopy] dst:%s EOF", dst.LocalAddr().String())
+            return
+        }
+        
+        if dst.Status() == pool.TransCloseWrite || dst.Status() == pool.TransClose || dst.Status() == pool.TransCloseAck {
+            logkit.Noticef("[ClientCopy] dst:%s status:%s", dst.LocalAddr().String(), dst.Status())
             return
         }
         
@@ -375,7 +385,7 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
     if back1 && back2 {
         pool.Put(dst)
     } else {
-        // logkit.Errorf("[ClientCopy] Remove conn back1:%v back2:%v", back1, back2)
+        logkit.Noticef("[ClientCopy] Remove conn back1:%v back2:%v", back1, back2)
         pool.Remove(dst)
     }
     logkit.Infof("[ClientCopy] OVER")
