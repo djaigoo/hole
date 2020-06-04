@@ -38,12 +38,12 @@ type Stats struct {
     StaleConns uint32 // number of stale connections removed from the pool
     
     // 移除连接数
-    RemoveConns uint32
+    CloseConns uint32
 }
 
 func (s *Stats) String() string {
-    return fmt.Sprintf("Hits:%d Misses:%d Timeouts:%d TotalConns:%d IdleConns:%d StaleConns:%d RemoveConns:%d",
-        s.Hits, s.Misses, s.Timeouts, s.TotalConns, s.IdleConns, s.StaleConns, s.RemoveConns)
+    return fmt.Sprintf("Hits:%d Misses:%d Timeouts:%d TotalConns:%d IdleConns:%d StaleConns:%d CloseConns:%d DiffConns:%d",
+        s.Hits, s.Misses, s.Timeouts, s.TotalConns, s.IdleConns, s.StaleConns, s.CloseConns, s.Misses-s.CloseConns-s.TotalConns)
 }
 
 type Pooler interface {
@@ -322,7 +322,6 @@ func (p *ConnPool) Put(cn *Conn) {
 
 // Remove 从pool中移除cn 并 close
 func (p *ConnPool) Remove(cn *Conn) error {
-    atomic.AddUint32(&p.stats.RemoveConns, 1)
     p.removeConn(cn)
     if cn.pooled {
         p.freeTurn()
@@ -353,6 +352,7 @@ func (p *ConnPool) removeConn(cn *Conn) {
 
 // closeConn 执行设定的OnClose函数并关闭连接
 func (p *ConnPool) closeConn(cn *Conn) error {
+    atomic.AddUint32(&p.stats.CloseConns, 1)
     if p.opt.OnClose != nil {
         _ = p.opt.OnClose(cn)
     }
@@ -387,7 +387,7 @@ func (p *ConnPool) Stats() *Stats {
         IdleConns:  uint32(idleLen),
         StaleConns: atomic.LoadUint32(&p.stats.StaleConns),
         
-        RemoveConns: atomic.LoadUint32(&p.stats.RemoveConns),
+        CloseConns: atomic.LoadUint32(&p.stats.CloseConns),
     }
 }
 
@@ -552,10 +552,17 @@ func Start(addr string, size int, config *tls.Config) {
     }()
 }
 
-func Get() (*Conn, error) {
-    conn, err := Pool.Get()
-    if conn != nil {
-        logkit.Debugf("[Pool] GET conn %s", conn.LocalAddr().String())
+func Get() (conn *Conn, err error) {
+    for conn == nil {
+        conn, err = Pool.Get()
+        if conn != nil {
+            if conn.Status() == TransClose || conn.Status() == TransCloseAck || conn.Status() == TransCloseWrite {
+                Remove(conn, RClose)
+                conn = nil
+                continue
+            }
+            logkit.Debugf("[Pool] GET conn %s", conn.LocalAddr().String())
+        }
     }
     return conn, err
 }
@@ -565,7 +572,30 @@ func Put(conn *Conn) {
     Pool.Put(conn)
 }
 
-func Remove(conn *Conn) error {
-    logkit.Debugf("[Pool] Remove conn %s", conn.LocalAddr().String())
+type Reason uint8
+
+func (r Reason) String() string {
+    switch r {
+    case RClose:
+        return "rClose"
+    case RStale:
+        return "rStale"
+    case RReadErr:
+        return "RReadErr"
+    case RWriteErr:
+        return "RWriteErr"
+    }
+    return ""
+}
+
+const (
+    RClose = Reason(iota)
+    RStale
+    RReadErr
+    RWriteErr
+)
+
+func Remove(conn *Conn, r Reason) error {
+    logkit.Debugf("[Pool] Remove conn %s reason %s", conn.LocalAddr().String(), r)
     return Pool.Remove(conn)
 }

@@ -141,14 +141,6 @@ func NewConn(conn net.Conn) *Conn {
                 }
                 logkit.Errorf("[NewConn] read conn:%s->%s error %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.readErr.Error())
                 return
-                // if c.readErr == io.ErrUnexpectedEOF {
-                //     logkit.Errorf("[NewConn] read conn:%s->%s error %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.readErr.Error())
-                //     return
-                // }
-                // if operr, ok := c.readErr.(*net.OpError); ok {
-                //     logkit.Errorf("[NewConn] read conn:%s->%s error %s", c.LocalAddr().String(), c.RemoteAddr().String(), operr.Error())
-                //     return
-                // }
             }
         }
     }()
@@ -161,15 +153,15 @@ func (c *Conn) read() (err error) {
     head := make([]byte, 6)
     n, err := c.conn.Read(head)
     if err != nil {
-        logkit.Errorf("[read] conn:%s->%s head error %s", c.LocalAddr().String(), c.RemoteAddr().String(), err.Error())
+        // logkit.Errorf("[read] conn:%s->%s head error %s", c.LocalAddr().String(), c.RemoteAddr().String(), err.Error())
         return err
     }
     if n < 6 {
-        logkit.Errorf("[read] recv len not 6")
+        // logkit.Errorf("[read] recv len not 6")
         return ErrLength
     }
     if head[0] != VER {
-        logkit.Errorf("[read] head ver not 1 %#v", head)
+        // logkit.Errorf("[read] head ver not 1 %#v", head)
         return ErrVersion
     }
     // logkit.Debugf("read head %#v", head)

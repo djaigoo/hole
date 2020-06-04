@@ -94,7 +94,7 @@ func main() {
     logkit.Infof("[main] server quit with signal %d", util.Signal())
 }
 
-func handle(conn *pool.Conn) {
+func handle(conn *pool.Conn) (err error) {
     close := true
     defer func() {
         if close {
@@ -110,26 +110,21 @@ func handle(conn *pool.Conn) {
     defer dao.RedisDao.DelConnect(conn.RemoteAddr().String())
     logkit.Infof("[handle] Receive Connect Request From %s", conn.RemoteAddr().String())
     
-    attr, err := socks5.GetAttrByConn(conn)
-    if err != nil {
-        if err != pool.ErrInterrupt {
-            logkit.Errorf("[handle] GetAttrByConn conn:%s %s", conn.RemoteAddr().String(), err.Error())
+    var attr *socks5.Attr
+    for attr == nil {
+        if conn.Status() == pool.TransClose || conn.Status() == pool.TransCloseAck || conn.Status() == pool.TransCloseWrite {
             return
         }
-        // interrupt waiting ...
-        for err == pool.ErrInterrupt {
-            time.Sleep(500 * time.Millisecond)
-            attr, err = socks5.GetAttrByConn(conn)
-            if pool.CheckErr(err) {
+        attr, err = socks5.GetAttrByConn(conn)
+        if err != nil {
+            if err != pool.ErrInterrupt {
                 logkit.Errorf("[handle] GetAttrByConn conn:%s %s", conn.RemoteAddr().String(), err.Error())
                 return
             }
         }
+        time.Sleep(500 * time.Millisecond)
     }
-    if attr == nil {
-        logkit.Errorf("[handle] attr is nil")
-        return
-    }
+    
     info, _ := attr.Marshal()
     logkit.Infof("[handle] GetAttrByConn attr: %s info:%#v", attr.GetHost(), info)
     
@@ -167,12 +162,12 @@ func handle(conn *pool.Conn) {
         udpAddr, err := net.ResolveUDPAddr("udp", host)
         if err != nil {
             logkit.Errorf("[handle] ResolveUDPAddr host:%s error: %s", host, err.Error())
-            return
+            return err
         }
         udpConn, err := net.DialUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0}, udpAddr)
         if err != nil {
             logkit.Errorf("[handle] dial udp error: %s", err.Error())
-            return
+            return err
         }
         logkit.Debugf("[handle] get udp conn %s --> %s", udpConn.LocalAddr().String(), udpConn.RemoteAddr().String())
         remote = udpConn
@@ -194,6 +189,7 @@ func handle(conn *pool.Conn) {
     logkit.Debugf("[handle] get remote %s", remote.RemoteAddr().String())
     
     _, _, close = ServerCopy(remote, conn)
+    return
 }
 
 // src --> pool
@@ -261,7 +257,7 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
         err = src.Interrupt(10 * time.Second)
         if err != nil {
             if src.Status() != pool.TransInterrupt && src.Status() != pool.TransInterruptAck {
-                logkit.Errorf("[ServerCopy] dst:%s --> src:%s send interrupt error %s", err.Error())
+                logkit.Errorf("[ServerCopy] dst:%s --> src:%s send interrupt error %s", dst.RemoteAddr().String(), src.LocalAddr().String(), err.Error())
                 return
             }
         }
