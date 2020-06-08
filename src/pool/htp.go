@@ -4,7 +4,6 @@ import (
     "context"
     "encoding/binary"
     "github.com/djaigoo/logkit"
-    "github.com/pkg/errors"
     "io"
     "net"
     "sync"
@@ -199,8 +198,8 @@ func (c *Conn) read() (err error) {
         logkit.Warnf("[read] TransInterruptAck from %s -> %s", c.conn.RemoteAddr().String(), c.conn.LocalAddr().String())
         c.status = TransInterruptAck
         // 清理脏数据
-        c.readBuf = c.readBuf[len(c.readBuf):]
-        c.chInterruptAck <- true
+        // c.readBuf = c.readBuf[len(c.readBuf):]
+        // c.chInterruptAck <- true
         return ErrInterrupt
     case TransClose:
         logkit.Warnf("[read] TransClose from %s -> %s", c.conn.RemoteAddr().String(), c.conn.LocalAddr().String())
@@ -236,9 +235,9 @@ func (c *Conn) read() (err error) {
 
 func (c *Conn) Read(b []byte) (n int, err error) {
     // logkit.Infof("call Read cur:%s->%s status %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.status)
-    if c.readErr != nil {
-        return 0, c.readErr
-    }
+    // if c.readErr != nil {
+    //     return 0, c.readErr
+    // }
     for len(c.readBuf) == 0 {
         time.Sleep(100 * time.Millisecond)
         if c.readErr != nil {
@@ -311,9 +310,9 @@ func (c *Conn) Interrupt(timeout time.Duration) error {
     if err != nil {
         return err
     }
-    if !c.waitInterruptAck(timeout) {
-        return errors.New("io timeout")
-    }
+    // if !c.waitInterruptAck(timeout) {
+    //     return errors.New("io timeout")
+    // }
     return nil
 }
 

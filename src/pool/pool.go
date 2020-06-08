@@ -546,7 +546,7 @@ func Start(addr string, size int, config *tls.Config) {
     }
     Pool = NewConnPool(opt)
     go func() {
-        for range time.NewTicker(5 * time.Second).C {
+        for range time.NewTicker(10 * time.Second).C {
             logkit.Debugf("[Pool] status: %s", Pool.Stats())
         }
     }()
@@ -562,6 +562,8 @@ func Get() (conn *Conn, err error) {
                 continue
             }
             logkit.Debugf("[Pool] GET conn %s", conn.LocalAddr().String())
+            // clear old data
+            conn.readBuf = make([]byte, 0, 2048)
         }
     }
     return conn, err

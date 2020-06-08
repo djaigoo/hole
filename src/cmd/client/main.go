@@ -366,7 +366,7 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
         err = dst.Interrupt(10 * time.Second)
         if err != nil {
             if dst.Status() != pool.TransInterrupt && dst.Status() != pool.TransInterruptAck {
-                logkit.Errorf("[ClientCopy] src:%s --> dst:%s send interrupt error %s", src.RemoteAddr().String(), dst.LocalAddr().String(), err.Error())
+                logkit.Errorf("[ClientCopy] src:%s --> dst:%s send interrupt status %s error %s", src.RemoteAddr().String(), dst.LocalAddr().String(), dst.Status(), err.Error())
                 back1 = sErr
                 return
             }
@@ -407,7 +407,7 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
         err = dst.Interrupt(10 * time.Second)
         if err != nil {
             if dst.Status() != pool.TransInterrupt && dst.Status() != pool.TransInterruptAck {
-                logkit.Errorf("[ClientCopy] dst:%s --> src:%s send interrupt error %s", dst.LocalAddr().String(), src.RemoteAddr().String(), err.Error())
+                logkit.Errorf("[ClientCopy] dst:%s --> src:%s send interrupt status %s error %s", dst.LocalAddr().String(), src.RemoteAddr().String(), dst.Status(), err.Error())
                 back2 = sErr
                 return
             }
