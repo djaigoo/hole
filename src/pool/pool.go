@@ -528,6 +528,7 @@ func Start(addr string, size int, config *tls.Config) {
                 conn, err = tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 1 * time.Minute}, "tcp", addr, config)
             }
             if err != nil {
+                logkit.Errorf("[Pool] Dialer error %s", err.Error())
                 return nil, err
             }
             logkit.Alertf("[Pool] New Conn %s", conn.LocalAddr().String())
@@ -541,7 +542,7 @@ func Start(addr string, size int, config *tls.Config) {
         MinIdleConns:       0,
         MaxConnAge:         24 * time.Hour,   // check create time
         PoolTimeout:        5 * time.Second,  // pool get time out
-        IdleTimeout:        10 * time.Minute, // check use at time
+        IdleTimeout:        30 * time.Minute, // check use at time
         IdleCheckFrequency: 30 * time.Second,
     }
     Pool = NewConnPool(opt)

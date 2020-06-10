@@ -9,6 +9,10 @@ import (
     "strconv"
 )
 
+var (
+    ErrInvalidVer = errors.New("socks invalid version")
+)
+
 type Attr struct {
     Command uint8
     Atyp    uint8
@@ -104,7 +108,7 @@ func (a *Attr) step2(conn net.Conn) error {
         return err
     }
     if tmp[0] != VER {
-        return nil
+        return errors.Wrapf(ErrInvalidVer, "step2 version:%#v", tmp[0])
     }
     if tmp[1] == 0 {
         return nil
@@ -126,7 +130,7 @@ func (a *Attr) step4(conn net.Conn) error {
         return err
     }
     if tmp[0] != VER {
-        return nil
+        return errors.Wrapf(ErrInvalidVer, "step4 version:%#v", tmp[0])
     }
     a.Command = tmp[1]
     a.Atyp = tmp[3]

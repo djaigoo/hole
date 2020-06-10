@@ -284,11 +284,9 @@ func handle(conn net.Conn) {
     rawAddr, _ := attr.Marshal()
     server, err := pool.Get()
     if err != nil {
-        logkit.Errorf("[handle] tls dial %s", err.Error())
+        logkit.Errorf("[handle] pool get %s", err.Error())
         return
     }
-    
-    logkit.Infof("[handle] client connect %s --> %s", conn.RemoteAddr().String(), server.LocalAddr().String())
     
     _, err = server.Write(rawAddr)
     if err != nil {
@@ -296,9 +294,10 @@ func handle(conn net.Conn) {
         pool.Remove(server, pool.RWriteErr)
         return
     }
-    logkit.Infof("[handle] send rawAddr %#v", rawAddr)
+    logkit.Debugf("[handle] send rawAddr %#v", rawAddr)
+    logkit.Debugf("[handle] client connect %s --> %s host %s", conn.RemoteAddr().String(), server.LocalAddr().String(), attr.GetHost())
     
-    logkit.Warnf("[handle] conn info %s --> %s", conn.RemoteAddr().String(), conn.LocalAddr().String())
+    // logkit.Warnf("[handle] conn info %s --> %s", conn.RemoteAddr().String(), conn.LocalAddr().String())
     _, _ = ClientCopy(server, conn)
     
     logkit.Debugf("[handle] close conn %s remote %s", conn.RemoteAddr().String(), server.LocalAddr().String())
@@ -344,13 +343,14 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
             if operr, ok := err.(*net.OpError); ok {
                 if operr.Op == "write" {
                     logkit.Errorf("[ClientCopy] src:%s --> dst:%s write error %s", src.RemoteAddr().String(), dst.LocalAddr().String(), err.Error())
+                    back1 = sErr
                     return
                 }
             } else {
                 logkit.Errorf("[ClientCopy] src:%s --> dst:%s write error %s", src.RemoteAddr().String(), dst.LocalAddr().String(), err.Error())
+                back1 = sErr
                 return
             }
-            back1 = sErr
         }
         if back2 == sErr || back2 == sClose {
             logkit.Noticef("[ClientCopy] dst:%s back2:%s", dst.LocalAddr().String(), back2)
@@ -384,13 +384,20 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
                 // keep dst: src write error or dst read interrupt
                 if operr.Op != "write" && operr.Err != pool.ErrInterrupt {
                     logkit.Errorf("[ClientCopy] dst:%s --> src:%s write error %s", dst.LocalAddr().String(), src.RemoteAddr().String(), err.Error())
-                    return
+                    if operr.Op == "readfrom" {
+                        if rderr, ok := operr.Err.(*net.OpError); ok {
+                            if rderr.Op != "write" && operr.Err != pool.ErrInterrupt {
+                                back2 = sErr
+                                return
+                            }
+                        }
+                    }
                 }
             } else {
                 logkit.Errorf("[ClientCopy] dst:%s --> src:%s write error %s", dst.LocalAddr().String(), src.RemoteAddr().String(), err.Error())
+                back2 = sErr
                 return
             }
-            back2 = sErr
         }
         if back1 == sErr || back1 == sClose {
             logkit.Noticef("[ClientCopy] dst:%s back1:%s", dst.LocalAddr().String(), back1)

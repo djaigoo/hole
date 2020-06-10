@@ -240,7 +240,7 @@ func (c *Conn) Read(b []byte) (n int, err error) {
     // }
     for len(c.readBuf) == 0 {
         time.Sleep(100 * time.Millisecond)
-        if c.readErr != nil {
+        if len(c.readBuf) == 0 && c.readErr != nil {
             return 0, c.readErr
         }
     }
