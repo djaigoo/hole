@@ -557,13 +557,14 @@ func Get() (conn *Conn, err error) {
     for conn == nil {
         conn, err = Pool.Get()
         if conn != nil {
-            if conn.Status() == TransClose || conn.Status() == TransCloseAck || conn.Status() == TransCloseWrite {
+            if conn.Closed || conn.Status() == TransClose || conn.Status() == TransCloseAck || conn.Status() == TransCloseWrite {
+                logkit.Alertf("[Pool] GET Closed")
                 Remove(conn, RClose)
                 conn = nil
                 continue
             }
             logkit.Debugf("[Pool] GET conn %s", conn.LocalAddr().String())
-            // clear old data
+            // clear old data 清理脏数据
             conn.readBuf = make([]byte, 0, 2048)
         }
     }
