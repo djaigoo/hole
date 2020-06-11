@@ -7,6 +7,7 @@ import (
     "io"
     "net"
     "sync/atomic"
+    "syscall"
     "time"
 )
 
@@ -153,6 +154,7 @@ func (c *Conn) read() (err error) {
         logkit.Debugf("[read] conn %s->%s is closed EOF", c.LocalAddr().String(), c.RemoteAddr().String())
         return io.EOF
     }
+    // TODO read: connect timed out ？
     head := make([]byte, 6)
     n, err := c.conn.Read(head)
     if err != nil {
@@ -238,6 +240,12 @@ func (c *Conn) Read(b []byte) (n int, err error) {
     for len(c.readBuf) == 0 {
         time.Sleep(100 * time.Millisecond)
         if len(c.readBuf) == 0 && c.readErr != nil {
+            if operr, ok := c.readErr.(*net.OpError); ok {
+                if operr.Err == syscall.ETIMEDOUT {
+                    logkit.Noticef("[Read] read error ETIMEOUT")
+                    continue
+                }
+            }
             return 0, c.readErr
         }
     }

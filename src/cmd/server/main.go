@@ -100,7 +100,7 @@ func handle(conn *pool.Conn) (err error) {
         if close {
             err := conn.Close()
             if err != nil {
-                logkit.Errorf("[handle] Close pool conn %s error %s", conn.RemoteAddr().String(), err.Error())
+                // logkit.Errorf("[handle] Close pool conn %s error %s", conn.RemoteAddr().String(), err.Error())
                 return
             }
             logkit.Infof("[handle] Client %s Connection Closed.....", conn.RemoteAddr().String())
@@ -144,7 +144,7 @@ func handle(conn *pool.Conn) (err error) {
             // 回收连接
             err = conn.Interrupt(10 * time.Second)
             if err != nil {
-                if conn.Status() != pool.TransInterrupt && conn.Status() != pool.TransInterruptAck {
+                if conn.IsInterrupt() {
                     logkit.Errorf("[handle] send interrupt conn:%s error %s", conn.RemoteAddr().String(), err.Error())
                     return
                 }

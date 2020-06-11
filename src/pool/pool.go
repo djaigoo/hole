@@ -92,6 +92,9 @@ type ConnPool struct {
     stats Stats
     
     _closed uint32 // atomic
+    
+    inSize  int64
+    outSize int64
 }
 
 var _ Pooler = (*ConnPool)(nil)
@@ -357,6 +360,8 @@ func (p *ConnPool) closeConn(cn *Conn) error {
     if p.opt.OnClose != nil {
         _ = p.opt.OnClose(cn)
     }
+    atomic.AddInt64(&p.inSize, cn.writeBytes)
+    atomic.AddInt64(&p.outSize, cn.readBytes)
     return cn.Close()
 }
 
@@ -431,6 +436,7 @@ func (p *ConnPool) Close() error {
     p.idleConnsLen = 0
     p.connsMu.Unlock()
     
+    logkit.Noticef("[Pool] SUM IN %d SUM OUT %d", p.inSize, p.outSize)
     return firstErr
 }
 
