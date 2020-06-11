@@ -315,6 +315,8 @@ func (s stype) String() string {
         return "sClose"
     case sActive:
         return "sActive"
+    default:
+        return strconv.Itoa(int(s))
     }
     return ""
 }
@@ -357,7 +359,7 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
             back1 = sBeClosed
             return
         }
-        if dst.Status() == pool.TransCloseWrite || dst.Status() == pool.TransClose || dst.Status() == pool.TransCloseAck {
+        if dst.IsClose() {
             logkit.Noticef("[ClientCopy] dst:%s status:%s", dst.LocalAddr().String(), dst.Status())
             back1 = sClose
             return
@@ -417,7 +419,7 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
             return
         }
         
-        if dst.Status() == pool.TransCloseWrite || dst.Status() == pool.TransClose || dst.Status() == pool.TransCloseAck {
+        if dst.IsClose() {
             logkit.Noticef("[ClientCopy] dst:%s status:%s", dst.LocalAddr().String(), dst.Status())
             back2 = sClose
             return
@@ -438,7 +440,7 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
     if back1 == sActive && back2 == sActive {
         pool.Put(dst)
     } else {
-        logkit.Noticef("[ClientCopy] Remove conn back1:%v back2:%v", back1, back2)
+        logkit.Debugf("[ClientCopy] Remove conn back1:%v back2:%v", back1, back2)
         if back1 != sActive {
             pool.Remove(dst, pool.RWriteErr)
         } else {

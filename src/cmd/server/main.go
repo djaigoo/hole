@@ -205,16 +205,31 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
         
         if err != nil {
             if operr, ok := err.(*net.OpError); ok {
-                if operr.Err != pool.ErrInterrupt && operr.Op != "write" {
-                    logkit.Errorf("[ServerCopy] src:%s --> dst:%s write error %s", src.LocalAddr().String(), dst.RemoteAddr().String(), err.Error())
-                    return
+                if operr.Err != pool.ErrInterrupt {
+                    switch operr.Op {
+                    case "write":
+                    case "read":
+                        logkit.Errorf("[ServerCopy] src:%s --> dst:%s read error %s", src.LocalAddr().String(), dst.RemoteAddr().String(), err.Error())
+                        return
+                    case "readfrom":
+                        if rderr, ok := operr.Err.(*net.OpError); ok {
+                            switch rderr.Op {
+                            case "read":
+                                logkit.Errorf("[ServerCopy] src:%s --> dst:%s readfrom error %s", src.LocalAddr().String(), dst.RemoteAddr().String(), err.Error())
+                                return
+                            case "write":
+                            default:
+                            
+                            }
+                        }
+                    }
                 }
             } else {
                 logkit.Errorf("[ServerCopy] src:%s --> dst:%s write error %s", src.LocalAddr().String(), dst.RemoteAddr().String(), err.Error())
                 return
             }
         }
-        if src.Status() == pool.TransCloseWrite || src.Status() == pool.TransClose || src.Status() == pool.TransCloseAck {
+        if src.IsClose() {
             logkit.Noticef("[ClientCopy] dst:%s status:%s", dst.LocalAddr().String(), src.Status())
             return
         }
@@ -250,7 +265,7 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
             }
         }
         
-        if src.Status() == pool.TransCloseWrite || src.Status() == pool.TransClose || src.Status() == pool.TransCloseAck {
+        if src.IsClose() {
             logkit.Noticef("[ClientCopy] dst:%s status:%s", dst.LocalAddr().String(), src.Status())
             return
         }

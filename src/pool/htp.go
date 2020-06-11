@@ -139,7 +139,7 @@ func NewConn(conn net.Conn) *Conn {
                 if c.readErr == io.EOF {
                     return
                 }
-                // logkit.Errorf("[NewConn] read conn:%s->%s error %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.readErr.Error())
+                logkit.Errorf("[NewConn] read conn:%s->%s error %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.readErr.Error())
                 return
             }
         }
@@ -298,6 +298,8 @@ func (c *Conn) Heartbeat() error {
         case <-c.heartbeatTicker.C:
             err := c.sendCmd(TransHeartbeat)
             if err != nil {
+                logkit.Errorf("[Heartbeat] conn %s->%s send heartbeat %s", c.LocalAddr().String(), c.RemoteAddr().String(), err.Error())
+                c.readErr = err
                 return err
             }
         case <-c.ctx.Done():
