@@ -133,7 +133,8 @@ func (p *ConnPool) addIdleConn() {
     if err != nil {
         return
     }
-    
+    // 这个也算miss
+    atomic.AddUint32(&p.stats.Misses, 1)
     p.connsMu.Lock()
     p.conns = append(p.conns, cn)
     p.idleConns = append(p.idleConns, cn)
@@ -539,7 +540,7 @@ func Start(addr string, size int, config *tls.Config) {
             return nil
         },
         PoolSize:           size, // max pool conn nums
-        MinIdleConns:       0,
+        MinIdleConns:       5,
         MaxConnAge:         24 * time.Hour,   // check create time
         PoolTimeout:        5 * time.Second,  // pool get time out
         IdleTimeout:        30 * time.Minute, // check use at time
@@ -547,7 +548,7 @@ func Start(addr string, size int, config *tls.Config) {
     }
     Pool = NewConnPool(opt)
     go func() {
-        for range time.NewTicker(10 * time.Second).C {
+        for range time.NewTicker(15 * time.Second).C {
             logkit.Debugf("[Pool] status: %s", Pool.Stats())
         }
     }()
@@ -557,8 +558,8 @@ func Get() (conn *Conn, err error) {
     for conn == nil {
         conn, err = Pool.Get()
         if conn != nil {
-            if conn.Closed || conn.Status() == TransClose || conn.Status() == TransCloseAck || conn.Status() == TransCloseWrite {
-                logkit.Alertf("[Pool] GET Closed")
+            if conn.IsClose() {
+                logkit.Alertf("[Pool] GET Closed conn %s --> %s", conn.LocalAddr().String(), conn.RemoteAddr().String())
                 Remove(conn, RClose)
                 conn = nil
                 continue
@@ -566,6 +567,8 @@ func Get() (conn *Conn, err error) {
             logkit.Debugf("[Pool] GET conn %s", conn.LocalAddr().String())
             // clear old data 清理脏数据
             conn.readBuf = make([]byte, 0, 2048)
+            // 重置连接状态
+            conn.status = TransHeartbeat
         }
     }
     return conn, err

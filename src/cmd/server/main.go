@@ -112,7 +112,7 @@ func handle(conn *pool.Conn) (err error) {
     
     var attr *socks5.Attr
     for attr == nil {
-        if conn.Status() == pool.TransClose || conn.Status() == pool.TransCloseAck || conn.Status() == pool.TransCloseWrite {
+        if conn.IsClose() {
             return
         }
         attr, err = socks5.GetAttrByConn(conn)
@@ -239,7 +239,7 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
         }
         err = src.Interrupt(10 * time.Second)
         if err != nil {
-            if src.Status() != pool.TransInterrupt && src.Status() != pool.TransInterruptAck {
+            if src.IsInterrupt() {
                 logkit.Errorf("[ServerCopy] src:%s send interrupt error %s", src.RemoteAddr().String(), err.Error())
                 return
             }
@@ -271,7 +271,7 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
         }
         err = src.Interrupt(10 * time.Second)
         if err != nil {
-            if src.Status() != pool.TransInterrupt && src.Status() != pool.TransInterruptAck {
+            if src.IsInterrupt() {
                 logkit.Errorf("[ServerCopy] dst:%s --> src:%s send interrupt error %s", dst.RemoteAddr().String(), src.LocalAddr().String(), err.Error())
                 return
             }

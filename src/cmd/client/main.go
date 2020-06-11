@@ -339,7 +339,11 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
         defer wg.Done()
         n1, err := io.Copy(dst, src)
         dst.AddWriteBytes(n1)
-        logkit.Infof("[ClientCopy] src:%s --> dst:%s write over %d byte", src.RemoteAddr().String(), dst.LocalAddr().String(), n1)
+        if err != nil {
+            logkit.Infof("[ClientCopy] src:%s --> dst:%s write over %d byte error %s", src.RemoteAddr().String(), dst.LocalAddr().String(), n1, err.Error())
+        } else {
+            logkit.Infof("[ClientCopy] src:%s --> dst:%s write over %d byte", src.RemoteAddr().String(), dst.LocalAddr().String(), n1)
+        }
         if err != nil {
             // only write dst error return
             if operr, ok := err.(*net.OpError); ok {
@@ -354,6 +358,7 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
                 return
             }
         }
+        
         if back2 == sErr || back2 == sClose {
             logkit.Noticef("[ClientCopy] dst:%s back2:%s", dst.LocalAddr().String(), back2)
             back1 = sBeClosed
@@ -367,7 +372,7 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
         
         err = dst.Interrupt(10 * time.Second)
         if err != nil {
-            if dst.Status() != pool.TransInterrupt && dst.Status() != pool.TransInterruptAck {
+            if dst.IsInterrupt() {
                 logkit.Errorf("[ClientCopy] src:%s --> dst:%s send interrupt status %s error %s", src.RemoteAddr().String(), dst.LocalAddr().String(), dst.Status(), err.Error())
                 back1 = sErr
                 return
@@ -380,7 +385,11 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
         defer wg.Done()
         n2, err := io.Copy(src, dst)
         dst.AddReadBytes(n2)
-        logkit.Infof("[ClientCopy] dst:%s --> src:%s write over %d byte", dst.LocalAddr().String(), src.RemoteAddr().String(), n2)
+        if err != nil {
+            logkit.Infof("[ClientCopy] dst:%s --> src:%s write over %d byte error %s", dst.LocalAddr().String(), src.RemoteAddr().String(), n2, err.Error())
+        } else {
+            logkit.Infof("[ClientCopy] dst:%s --> src:%s write over %d byte", dst.LocalAddr().String(), src.RemoteAddr().String(), n2)
+        }
         if err != nil {
             if operr, ok := err.(*net.OpError); ok {
                 if operr.Err != pool.ErrInterrupt {
@@ -427,7 +436,7 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
         
         err = dst.Interrupt(10 * time.Second)
         if err != nil {
-            if dst.Status() != pool.TransInterrupt && dst.Status() != pool.TransInterruptAck {
+            if dst.IsInterrupt() {
                 logkit.Errorf("[ClientCopy] dst:%s --> src:%s send interrupt status %s error %s", dst.LocalAddr().String(), src.RemoteAddr().String(), dst.Status(), err.Error())
                 back2 = sErr
                 return
@@ -440,7 +449,7 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
     if back1 == sActive && back2 == sActive {
         pool.Put(dst)
     } else {
-        logkit.Debugf("[ClientCopy] Remove conn back1:%v back2:%v", back1, back2)
+        logkit.Debugf("[ClientCopy] Remove conn %s --> %s back1:%v back2:%v", dst.LocalAddr().String(), dst.RemoteAddr().String(), back1, back2)
         if back1 != sActive {
             pool.Remove(dst, pool.RWriteErr)
         } else {
