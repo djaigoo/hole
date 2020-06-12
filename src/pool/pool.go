@@ -574,10 +574,7 @@ func Get() (conn *Conn, err error) {
                 continue
             }
             logkit.Debugf("[Pool] GET conn %s", conn.LocalAddr().String())
-            // clear old data 清理脏数据
-            conn.readBuf = make([]byte, 0, 2048)
-            // 重置连接状态
-            conn.status = TransHeartbeat
+            conn.Reset()
         }
     }
     return conn, err

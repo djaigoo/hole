@@ -115,12 +115,12 @@ func NewConn(conn net.Conn) *Conn {
     }
     c := &Conn{
         conn:            conn,
-        status:          TransInterrupt,
-        readBuf:         make([]byte, 0, 2048),
+        status:          TransHeartbeat,
         heartbeatTicker: time.NewTicker(30 * time.Second),
         createdAt:       time.Now(),
         usedAt:          atomic.Value{},
     }
+    c.ClearReadBuffer()
     c.ctx, c.cancel = context.WithCancel(context.Background())
     c.usedAt.Store(time.Now())
     go c.loopRead()
@@ -238,7 +238,8 @@ func (c *Conn) read() (err error) {
 func (c *Conn) Read(b []byte) (n int, err error) {
     // logkit.Infof("call Read cur:%s->%s status %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.status)
     for len(c.readBuf) == 0 {
-        time.Sleep(100 * time.Millisecond)
+        // 防止TransInterrupt后还有数据
+        time.Sleep(1 * time.Second)
         if len(c.readBuf) == 0 && c.readErr != nil {
             if operr, ok := c.readErr.(*net.OpError); ok {
                 if operr.Err == syscall.ETIMEDOUT {
@@ -267,6 +268,9 @@ func (c *Conn) Write(b []byte) (n int, err error) {
     if c.IsClose() {
         return 0, ErrClosed
     }
+    if c.IsInterrupt() {
+        return 0, ErrInterrupt
+    }
     l := len(b)
     ldata := make([]byte, 4)
     binary.BigEndian.PutUint32(ldata, uint32(l))
@@ -283,7 +287,7 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 
 func (c *Conn) sendCmd(id cmd) error {
     if id != TransHeartbeat {
-        logkit.Warnf("[read] call %s cur:%s->%s status %s", id, c.LocalAddr().String(), c.RemoteAddr().String(), c.status)
+        logkit.Warnf("[sendCmd] call %s cur:%s->%s status %s", id, c.LocalAddr().String(), c.RemoteAddr().String(), c.status)
     }
     _, err := c.conn.Write([]byte{VER, byte(id), 0, 0, 0, 0})
     return err
@@ -324,7 +328,7 @@ func (c *Conn) Interrupt(timeout time.Duration) error {
 }
 
 func (c *Conn) CloseWrite() error {
-    if c.status == TransCloseAck {
+    if c.IsClose() {
         return nil
     }
     err := c.sendCmd(TransCloseWrite)
@@ -332,7 +336,7 @@ func (c *Conn) CloseWrite() error {
 }
 
 func (c *Conn) Close() error {
-    if c.status == TransCloseAck {
+    if c.IsClose() {
         return nil
     }
     err := c.sendCmd(TransClose)
@@ -385,4 +389,17 @@ func (c *Conn) IsClose() bool {
 
 func (c *Conn) IsInterrupt() bool {
     return c.status == TransInterruptAck || c.status == TransInterrupt
+}
+
+func (c *Conn) ClearReadBuffer() {
+    logkit.Alertf("[ClearReadBuffer] cur read buffer len %d", len(c.readBuf))
+    c.readBuf = make([]byte, 0, 2048)
+}
+
+// 重置连接
+func (c *Conn) Reset() {
+    // clear old data 清理脏数据
+    c.ClearReadBuffer()
+    // 重置连接状态
+    c.status = TransHeartbeat
 }
