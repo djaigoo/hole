@@ -117,7 +117,7 @@ func NewConn(conn net.Conn) *Conn {
     }
     c := &Conn{
         conn:            conn,
-        heartbeatTicker: time.NewTicker(30 * time.Second),
+        heartbeatTicker: time.NewTicker(15 * time.Second),
         createdAt:       time.Now(),
         usedAt:          atomic.Value{},
     }
@@ -136,7 +136,7 @@ func (c *Conn) loopRead() {
     for {
         c.readErr = c.read()
         if c.readErr != nil {
-            if c.readErr == ErrInterrupt {
+            if c.readErr == ErrInterrupt || c.readErr.Error() == "read: connection timed out" {
                 continue
             }
             if c.readErr == io.EOF {
