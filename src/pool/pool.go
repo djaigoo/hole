@@ -568,7 +568,7 @@ func Get() (conn *Conn, err error) {
         conn, err = Pool.Get()
         if conn != nil {
             if conn.IsClose() {
-                logkit.Alertf("[Pool] GET Closed conn %s --> %s", conn.LocalAddr().String(), conn.RemoteAddr().String())
+                logkit.Alertf("[Pool] GET closed conn %s --> %s", conn.LocalAddr().String(), conn.RemoteAddr().String())
                 Remove(conn, RClose)
                 conn = nil
                 continue

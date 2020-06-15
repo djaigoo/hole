@@ -95,7 +95,9 @@ type Conn struct {
     readBuf []byte
     readErr error
     
-    Closed          bool
+    sendInterruptFlag int32
+    
+    closed          bool
     heartbeatTicker *time.Ticker
     ctx             context.Context
     cancel          context.CancelFunc
@@ -193,6 +195,9 @@ func (c *Conn) read() (err error) {
         }
         return nil
     case TransInterrupt:
+        if c.status == TransInterrupt {
+            return ErrInterrupt
+        }
         c.status = TransInterrupt
         _, err = c.conn.Write([]byte{VER, byte(TransInterruptAck), 0, 0, 0, 0})
         if err != nil {
@@ -203,7 +208,7 @@ func (c *Conn) read() (err error) {
         c.status = TransInterruptAck
         return ErrInterrupt
     case TransClose:
-        c.Closed = true
+        c.closed = true
         c.status = TransClose
         _, err = c.conn.Write([]byte{VER, byte(TransCloseAck), 0, 0, 0, 0})
         if err != nil {
@@ -212,12 +217,12 @@ func (c *Conn) read() (err error) {
         c.conn.Close()
         return io.EOF
     case TransCloseAck:
-        c.Closed = true
+        c.closed = true
         c.status = TransCloseAck
         c.conn.Close()
         return io.EOF
     case TransCloseWrite:
-        c.Closed = true
+        c.closed = true
         c.status = TransCloseWrite
         _, err = c.conn.Write([]byte{VER, byte(TransCloseAck), 0, 0, 0, 0})
         if err != nil {
@@ -296,7 +301,7 @@ func (c *Conn) sendCmd(id cmd) error {
 func (c *Conn) Heartbeat() error {
     defer logkit.Warnf("[Heartbeat] conn %s->%s stop heartbeat", c.LocalAddr().String(), c.RemoteAddr().String())
     defer func() {
-        c.Closed = true
+        c.closed = true
     }()
     for {
         select {
@@ -320,10 +325,14 @@ func (c *Conn) Interrupt(timeout time.Duration) error {
     if c.IsClose() {
         return ErrClosed
     }
+    if c.sendInterruptFlag > 0 {
+        return nil
+    }
     err := c.sendCmd(TransInterrupt)
     if err != nil {
         return err
     }
+    atomic.AddInt32(&c.sendInterruptFlag, 1)
     return nil
 }
 
@@ -384,7 +393,7 @@ func (c *Conn) Status() cmd {
 }
 
 func (c *Conn) IsClose() bool {
-    return c.Closed || c.status == TransClose || c.status == TransCloseAck || c.status == TransCloseWrite
+    return c.closed || c.status == TransClose || c.status == TransCloseAck || c.status == TransCloseWrite
 }
 
 func (c *Conn) IsInterrupt() bool {
@@ -403,4 +412,5 @@ func (c *Conn) Reset() {
     // 重置连接状态
     c.status = TransHeartbeat
     c.readErr = nil
+    atomic.StoreInt32(&c.sendInterruptFlag, 0)
 }
