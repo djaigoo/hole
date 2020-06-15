@@ -431,8 +431,6 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
         }
         
         back2 = sActive
-        // 主动关闭外端连接 防止连接不释放
-        src.Close()
     }()
     wg.Wait()
     

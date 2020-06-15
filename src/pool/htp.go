@@ -136,7 +136,7 @@ func (c *Conn) loopRead() {
     for {
         c.readErr = c.read()
         if c.readErr != nil {
-            if c.readErr == ErrInterrupt || c.readErr.Error() == "read: connection timed out" {
+            if c.readErr == ErrInterrupt || c.readErr.Error() == "read: connection timed out" ||  c.readErr.Error() == "read: operation timed out" {
                 continue
             }
             if c.readErr == io.EOF {
