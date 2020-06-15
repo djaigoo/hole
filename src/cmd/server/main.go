@@ -230,6 +230,8 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
         // src io.EOF
         if err == nil || src.IsClose() {
             logkit.Noticef("[ClientCopy] dst:%s --> %s status:%s", dst.LocalAddr().String(), dst.RemoteAddr().String(), src.Status())
+            // src closed
+            dst.Close()
             return
         }
         

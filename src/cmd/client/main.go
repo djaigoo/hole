@@ -410,6 +410,7 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
         if err == nil || dst.IsClose() {
             logkit.Noticef("[ClientCopy] dst:%s is closed status:%s", dst.LocalAddr().String(), dst.Status())
             back2 = sClose
+            src.Close()
             return
         }
         
