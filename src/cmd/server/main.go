@@ -3,6 +3,7 @@ package main
 import (
     "flag"
     "github.com/djaigoo/hole/src/confs"
+    "github.com/djaigoo/hole/src/connect"
     "github.com/djaigoo/hole/src/dao"
     "github.com/djaigoo/hole/src/pool"
     "github.com/djaigoo/hole/src/socks5"
@@ -205,54 +206,40 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
     wg.Add(2)
     go func() {
         defer wg.Done()
-        n1, err := io.Copy(dst, src)
+        n1, err := connect.Copy(dst, src)
         if err != nil {
             logkit.Infof("[ServerCopy] src:%s --> dst:%s write over %d byte error %s", src.RemoteAddr().String(), dst.RemoteAddr().String(), n1, err.Error())
         } else {
             logkit.Infof("[ServerCopy] src:%s --> dst:%s write over %d byte", src.RemoteAddr().String(), dst.RemoteAddr().String(), n1)
         }
         if err != nil {
-            if operr, ok := err.(*net.OpError); ok {
-                if operr.Err != pool.ErrInterrupt {
-                    switch operr.Op {
-                    case "write":
-                    case "read":
-                        logkit.Errorf("[ServerCopy] src:%s --> dst:%s read error %s", src.RemoteAddr().String(), dst.RemoteAddr().String(), err.Error())
-                        return
-                    case "readfrom":
-                        if rderr, ok := operr.Err.(*net.OpError); ok {
-                            if rderr.Err != pool.ErrInterrupt {
-                                switch rderr.Op {
-                                case "read":
-                                    logkit.Errorf("[ServerCopy] src:%s --> dst:%s readfrom error %s", src.RemoteAddr().String(), dst.RemoteAddr().String(), err.Error())
-                                    return
-                                case "write":
-                                default:
-                                
-                                }
-                            }
+            if err != pool.ErrInterrupt {
+                if operr, ok := err.(*net.OpError); ok {
+                    if operr.Err != pool.ErrInterrupt {
+                        switch operr.Op {
+                        case "write":
+                        case "read":
+                            logkit.Errorf("[ServerCopy] src:%s --> dst:%s read error %s", src.RemoteAddr().String(), dst.RemoteAddr().String(), err.Error())
+                            return
                         }
                     }
                 }
-            } else {
-                logkit.Errorf("[ServerCopy] src:%s --> dst:%s write error %s", src.RemoteAddr().String(), dst.RemoteAddr().String(), err.Error())
-                return
             }
         }
-        if src.IsClose() {
+        
+        // src io.EOF
+        if err == nil || src.IsClose() {
             logkit.Noticef("[ClientCopy] dst:%s --> %s status:%s", dst.LocalAddr().String(), dst.RemoteAddr().String(), src.Status())
             return
         }
-        // src io.EOF
-        if err == nil {
-            return
-        }
-        err = src.Interrupt(10 * time.Second)
-        if err != nil {
-            if src.IsInterrupt() {
+        
+        for !src.IsInterrupt() {
+            err = src.Interrupt(10 * time.Second)
+            if err != nil {
                 logkit.Errorf("[ServerCopy] src:%s send interrupt error %s", src.RemoteAddr().String(), err.Error())
                 return
             }
+            time.Sleep(1 * time.Second)
         }
         active1 = true
         // 主动关闭外端连接 防止连接泄漏
@@ -261,7 +248,7 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
     
     go func() {
         defer wg.Done()
-        n2, err := io.Copy(src, dst)
+        n2, err := connect.Copy(src, dst)
         if err != nil {
             logkit.Infof("[ServerCopy] dst:%s --> src:%s write over %d byte error %s", dst.RemoteAddr().String(), src.RemoteAddr().String(), n2, err.Error())
         } else {
@@ -277,8 +264,10 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
                     }
                 }
             } else {
-                logkit.Errorf("[ServerCopy] dst:%s --> src:%s write error %s", dst.RemoteAddr().String(), src.RemoteAddr().String(), err.Error())
-                return
+                if err != pool.ErrInterrupt {
+                    logkit.Errorf("[ServerCopy] dst:%s --> src:%s write error %s", dst.RemoteAddr().String(), src.RemoteAddr().String(), err.Error())
+                    return
+                }
             }
         }
         
@@ -286,12 +275,13 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
             logkit.Noticef("[ClientCopy] dst:%s --> %s status:%s", dst.LocalAddr().String(), dst.RemoteAddr().String(), src.Status())
             return
         }
-        err = src.Interrupt(10 * time.Second)
-        if err != nil {
-            if src.IsInterrupt() {
+        for !src.IsInterrupt() {
+            err = src.Interrupt(10 * time.Second)
+            if err != nil {
                 logkit.Errorf("[ServerCopy] dst:%s --> src:%s send interrupt error %s", dst.RemoteAddr().String(), src.RemoteAddr().String(), err.Error())
                 return
             }
+            time.Sleep(1 * time.Second)
         }
         active2 = true
     }()

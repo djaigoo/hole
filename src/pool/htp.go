@@ -115,14 +115,13 @@ func NewConn(conn net.Conn) *Conn {
     }
     c := &Conn{
         conn:            conn,
-        status:          TransHeartbeat,
         heartbeatTicker: time.NewTicker(30 * time.Second),
         createdAt:       time.Now(),
         usedAt:          atomic.Value{},
     }
-    c.ClearReadBuffer()
     c.ctx, c.cancel = context.WithCancel(context.Background())
     c.usedAt.Store(time.Now())
+    c.Reset()
     go c.loopRead()
     go c.Heartbeat()
     return c
@@ -239,7 +238,7 @@ func (c *Conn) Read(b []byte) (n int, err error) {
     // logkit.Infof("call Read cur:%s->%s status %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.status)
     for len(c.readBuf) == 0 {
         // 防止TransInterrupt后还有数据
-        time.Sleep(1 * time.Second)
+        time.Sleep(100 * time.Millisecond)
         if len(c.readBuf) == 0 && c.readErr != nil {
             if operr, ok := c.readErr.(*net.OpError); ok {
                 if operr.Err == syscall.ETIMEDOUT {
@@ -268,6 +267,7 @@ func (c *Conn) Write(b []byte) (n int, err error) {
     if c.IsClose() {
         return 0, ErrClosed
     }
+    // 模拟写入已断开连接
     if c.IsInterrupt() {
         return 0, ErrInterrupt
     }

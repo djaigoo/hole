@@ -8,13 +8,13 @@ import (
     "fmt"
     "github.com/djaigoo/hole/src/code"
     "github.com/djaigoo/hole/src/confs"
+    "github.com/djaigoo/hole/src/connect"
     "github.com/djaigoo/hole/src/pool"
     "github.com/djaigoo/hole/src/socks5"
     "github.com/djaigoo/hole/src/util"
     "github.com/djaigoo/httpclient"
     "github.com/djaigoo/logkit"
     "github.com/pkg/errors"
-    "io"
     "net"
     "net/http"
     "strconv"
@@ -268,7 +268,7 @@ func handle(conn net.Conn) {
     defer func() {
         err := conn.Close()
         if err != nil {
-            logkit.Errorf("[handle] close local connect %s --> %s error %s", conn.RemoteAddr().String(), conn.LocalAddr().String(), err.Error())
+            // logkit.Errorf("[handle] close local connect %s --> %s error %s", conn.RemoteAddr().String(), conn.LocalAddr().String(), err.Error())
             return
         }
         logkit.Warnf("[handle] local connect close %s --> %s", conn.RemoteAddr().String(), conn.LocalAddr().String())
@@ -337,7 +337,7 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
     wg.Add(2)
     go func() {
         defer wg.Done()
-        n1, err := io.Copy(dst, src)
+        n1, err := connect.Copy(dst, src)
         dst.AddWriteBytes(n1)
         if err != nil {
             logkit.Infof("[ClientCopy] src:%s --> dst:%s write over %d byte error %s", src.RemoteAddr().String(), dst.LocalAddr().String(), n1, err.Error())
@@ -346,46 +346,44 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
         }
         if err != nil {
             // only write dst error return
-            if operr, ok := err.(*net.OpError); ok {
-                if operr.Err != pool.ErrInterrupt {
+            if err != pool.ErrInterrupt {
+                if operr, ok := err.(*net.OpError); ok {
                     if operr.Op == "write" {
                         logkit.Errorf("[ClientCopy] src:%s --> dst:%s write error %s", src.RemoteAddr().String(), dst.LocalAddr().String(), err.Error())
                         back1 = sErr
                         return
                     }
                 }
-            } else {
-                logkit.Errorf("[ClientCopy] src:%s --> dst:%s write error %s", src.RemoteAddr().String(), dst.LocalAddr().String(), err.Error())
-                back1 = sErr
-                return
             }
         }
         
-        if back2 == sErr || back2 == sClose {
-            logkit.Noticef("[ClientCopy] dst:%s back2:%s", dst.LocalAddr().String(), back2)
-            back1 = sBeClosed
-            return
-        }
         if dst.IsClose() {
-            logkit.Noticef("[ClientCopy] dst:%s status:%s", dst.LocalAddr().String(), dst.Status())
+            logkit.Noticef("[ClientCopy] dst:%s is closed status:%s", dst.LocalAddr().String(), dst.Status())
             back1 = sClose
             return
         }
         
-        err = dst.Interrupt(10 * time.Second)
-        if err != nil {
-            if dst.IsInterrupt() {
+        if back2 == sErr || back2 == sClose {
+            logkit.Noticef("[ClientCopy] dst:%s is quit back2:%s", dst.LocalAddr().String(), back2)
+            back1 = sBeClosed
+            return
+        }
+        
+        for !dst.IsInterrupt() {
+            err = dst.Interrupt(10 * time.Second)
+            if err != nil {
                 logkit.Errorf("[ClientCopy] src:%s --> dst:%s send interrupt status %s error %s", src.RemoteAddr().String(), dst.LocalAddr().String(), dst.Status(), err.Error())
                 back1 = sErr
                 return
             }
+            time.Sleep(1 * time.Second)
         }
         back1 = sActive
     }()
     
     go func() {
         defer wg.Done()
-        n2, err := io.Copy(src, dst)
+        n2, err := connect.Copy(src, dst)
         dst.AddReadBytes(n2)
         if err != nil {
             logkit.Infof("[ClientCopy] dst:%s --> src:%s write over %d byte error %s", dst.LocalAddr().String(), src.RemoteAddr().String(), n2, err.Error())
@@ -393,58 +391,47 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
             logkit.Infof("[ClientCopy] dst:%s --> src:%s write over %d byte", dst.LocalAddr().String(), src.RemoteAddr().String(), n2)
         }
         if err != nil {
-            if operr, ok := err.(*net.OpError); ok {
-                if operr.Err != pool.ErrInterrupt {
-                    logkit.Errorf("[ClientCopy] dst:%s --> src:%s write error %s", dst.LocalAddr().String(), src.RemoteAddr().String(), err.Error())
-                    
-                    // keep dst: src write error or dst read interrupt
-                    switch operr.Op {
-                    case "write":
-                    case "read":
-                        back2 = sErr
-                        return
-                    case "readfrom":
-                        if rderr, ok := operr.Err.(*net.OpError); ok {
-                            switch rderr.Op {
-                            case "read":
-                                back2 = sErr
-                                return
-                            case "write":
-                            default:
-                            
-                            }
+            if err != pool.ErrInterrupt {
+                if operr, ok := err.(*net.OpError); ok {
+                    if operr.Err != pool.ErrInterrupt {
+                        logkit.Errorf("[ClientCopy] dst:%s --> src:%s write error %s", dst.LocalAddr().String(), src.RemoteAddr().String(), err.Error())
+                        // keep dst: src write error or dst read interrupt
+                        switch operr.Op {
+                        case "write":
+                        case "read":
+                            back2 = sErr
+                            return
                         }
-                    default:
-                    
                     }
                 }
-            } else {
-                logkit.Errorf("[ClientCopy] dst:%s --> src:%s write not op error %s", dst.LocalAddr().String(), src.RemoteAddr().String(), err.Error())
-                back2 = sErr
-                return
             }
         }
-        if back1 == sErr || back1 == sClose {
-            logkit.Noticef("[ClientCopy] dst:%s back1:%s", dst.LocalAddr().String(), back1)
-            back2 = sBeClosed
-            return
-        }
         
-        if dst.IsClose() {
-            logkit.Noticef("[ClientCopy] dst:%s status:%s", dst.LocalAddr().String(), dst.Status())
+        if err == nil || dst.IsClose() {
+            logkit.Noticef("[ClientCopy] dst:%s is closed status:%s", dst.LocalAddr().String(), dst.Status())
             back2 = sClose
             return
         }
         
-        err = dst.Interrupt(10 * time.Second)
-        if err != nil {
-            if dst.IsInterrupt() {
+        if back1 == sErr || back1 == sClose {
+            logkit.Noticef("[ClientCopy] dst:%s is quit back1:%s", dst.LocalAddr().String(), back1)
+            back2 = sBeClosed
+            return
+        }
+        
+        for !dst.IsInterrupt() {
+            err = dst.Interrupt(10 * time.Second)
+            if err != nil {
                 logkit.Errorf("[ClientCopy] dst:%s --> src:%s send interrupt status %s error %s", dst.LocalAddr().String(), src.RemoteAddr().String(), dst.Status(), err.Error())
                 back2 = sErr
                 return
             }
+            time.Sleep(1 * time.Second)
         }
+        
         back2 = sActive
+        // 主动关闭外端连接 防止连接不释放
+        src.Close()
     }()
     wg.Wait()
     

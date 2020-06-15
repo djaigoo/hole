@@ -5,51 +5,36 @@ import (
     "github.com/djaigoo/logkit"
     "io"
     "net"
-    "sync"
 )
 
-// Pipe 完成两个连接数据互通
-func Pipe(conn1, conn2 net.Conn) (n1, n2 int64, err error) {
-    wg := new(sync.WaitGroup)
-    wg.Add(2)
-    go func() {
-        defer func() {
-            // err = CloseWrite(conn2)
-            // if err != nil {
-            //     logkit.Errorf("[Pipe] close write conn2 error %s", err.Error())
-            // }
-            CloseWrite(conn2)
-            // conn2.SetReadDeadline(time.Now())
-            wg.Done()
-        }()
-        n1, err = io.Copy(conn2, conn1)
-        if err != nil {
-            logkit.Errorf("[Pipe] %s --> %s write error %s", conn1.RemoteAddr().String(), conn2.RemoteAddr().String(), err.Error())
-            return
+// Copy 完成两个连接数据互通
+func Copy(dst, src net.Conn) (written int64, err error) {
+    size := 32 * 1024
+    buf := make([]byte, size)
+    for {
+        nr, er := src.Read(buf)
+        if nr > 0 {
+            nw, ew := dst.Write(buf[0:nr])
+            if nw > 0 {
+                written += int64(nw)
+            }
+            if ew != nil {
+                err = ew
+                break
+            }
+            if nr != nw {
+                err = io.ErrShortWrite
+                break
+            }
         }
-        logkit.Infof("[Pipe] %s --> %s write over %d byte", conn1.RemoteAddr().String(), conn2.RemoteAddr().String(), n1)
-    }()
-    
-    go func() {
-        defer func() {
-            // err = CloseWrite(conn1)
-            // if err != nil {
-            //     logkit.Errorf("[Pipe] close write conn1 error %s", err.Error())
-            // }
-            CloseWrite(conn1)
-            // conn1.SetReadDeadline(time.Now())
-            wg.Done()
-        }()
-        n2, err = io.Copy(conn1, conn2)
-        if err != nil {
-            logkit.Errorf("[Pipe] %s --> %s write error %s", conn2.RemoteAddr().String(), conn1.RemoteAddr().String(), err.Error())
-            return
+        if er != nil {
+            if er != io.EOF {
+                err = er
+            }
+            break
         }
-        logkit.Infof("[Pipe] %s --> %s write over %d byte", conn2.RemoteAddr().String(), conn1.RemoteAddr().String(), n2)
-    }()
-    wg.Wait()
-    logkit.Infof("[Pipe] OVER")
-    return
+    }
+    return written, err
 }
 
 func CloseWrite(conn net.Conn) error {
