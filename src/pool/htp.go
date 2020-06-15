@@ -402,4 +402,5 @@ func (c *Conn) Reset() {
     c.ClearReadBuffer()
     // 重置连接状态
     c.status = TransHeartbeat
+    c.readErr = nil
 }
