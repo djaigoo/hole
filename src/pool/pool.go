@@ -549,10 +549,10 @@ func Start(addr string, size int, config *tls.Config) {
             return nil
         },
         PoolSize:           size, // max pool conn nums
-        MinIdleConns:       5,
+        MinIdleConns:       0,
         MaxConnAge:         24 * time.Hour,   // check create time
         PoolTimeout:        5 * time.Second,  // pool get time out
-        IdleTimeout:        30 * time.Minute, // check use at time
+        IdleTimeout:        15 * time.Minute, // check use at time
         IdleCheckFrequency: 30 * time.Second,
     }
     Pool = NewConnPool(opt)

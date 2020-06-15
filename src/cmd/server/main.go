@@ -213,26 +213,21 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
         } else {
             logkit.Infof("[ServerCopy] src:%s --> dst:%s write over %d byte", src.RemoteAddr().String(), dst.RemoteAddr().String(), n1)
         }
-        if err != nil {
-            if err != pool.ErrInterrupt {
-                if operr, ok := err.(*net.OpError); ok {
-                    if operr.Err != pool.ErrInterrupt {
-                        switch operr.Op {
-                        case "write":
-                        case "read":
-                            logkit.Errorf("[ServerCopy] src:%s --> dst:%s read error %s", src.RemoteAddr().String(), dst.RemoteAddr().String(), err.Error())
-                            return
-                        }
-                    }
+        if err != nil && err != pool.ErrInterrupt {
+            if operr, ok := err.(*net.OpError); ok {
+                if operr.Op != "read" {
+                    logkit.Errorf("[ServerCopy] src:%s --> dst:%s read error %s", src.RemoteAddr().String(), dst.RemoteAddr().String(), err.Error())
+                    return
                 }
             }
         }
         
+        // 主动关闭外端连接 防止连接泄漏
+        defer dst.Close()
+        
         // src io.EOF
         if err == nil || src.IsClose() {
             logkit.Noticef("[ClientCopy] dst:%s --> %s status:%s", dst.LocalAddr().String(), dst.RemoteAddr().String(), src.Status())
-            // src closed
-            dst.Close()
             return
         }
         
@@ -245,8 +240,6 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
             time.Sleep(1 * time.Second)
         }
         active1 = true
-        // 主动关闭外端连接 防止连接泄漏
-        dst.Close()
     }()
     
     go func() {
@@ -257,17 +250,9 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
         } else {
             logkit.Infof("[ServerCopy] dst:%s --> src:%s write over %d byte", dst.RemoteAddr().String(), src.RemoteAddr().String(), n2)
         }
-        if err != nil {
-            // read src error or write dst error
+        if err != nil && err != pool.ErrInterrupt {
             if operr, ok := err.(*net.OpError); ok {
-                if operr.Err != pool.ErrInterrupt {
-                    if operr.Op == "write" {
-                        logkit.Errorf("[ServerCopy] dst:%s --> src:%s write error %s", dst.RemoteAddr().String(), src.RemoteAddr().String(), err.Error())
-                        return
-                    }
-                }
-            } else {
-                if err != pool.ErrInterrupt {
+                if operr.Op == "write" {
                     logkit.Errorf("[ServerCopy] dst:%s --> src:%s write error %s", dst.RemoteAddr().String(), src.RemoteAddr().String(), err.Error())
                     return
                 }
