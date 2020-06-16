@@ -390,7 +390,7 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
         }
         if err != nil && err != pool.ErrInterrupt {
             if operr, ok := err.(*net.OpError); ok {
-                if operr.Op != "read" {
+                if operr.Op != "write" {
                     logkit.Errorf("[ClientCopy] dst:%s --> src:%s write error %s", dst.LocalAddr().String(), src.RemoteAddr().String(), err.Error())
                     back2 = sErr
                     return
@@ -399,7 +399,7 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
         }
         
         // 主动关闭外端连接 防止连接不释放
-        defer src.Close()
+        defer src.SetReadDeadline(time.Now())
         
         if err == nil || dst.IsClose() {
             logkit.Noticef("[ClientCopy] dst:%s is closed status:%s", dst.LocalAddr().String(), dst.Status())

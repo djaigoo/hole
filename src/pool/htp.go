@@ -136,12 +136,18 @@ func (c *Conn) loopRead() {
     for {
         c.readErr = c.read()
         if c.readErr != nil {
-            if c.readErr == ErrInterrupt || c.readErr.Error() == "read: connection timed out" ||  c.readErr.Error() == "read: operation timed out" {
+            if c.readErr == ErrInterrupt {
                 continue
             }
             if c.readErr == io.EOF {
                 logkit.Debugf("[loopRead] read conn:%s->%s EOF", c.LocalAddr().String(), c.RemoteAddr().String())
                 return
+            }
+            if operr, ok := c.readErr.(*net.OpError); ok {
+                if operr.Err != nil && operr.Err == syscall.ETIMEDOUT {
+                    logkit.Debugf("[loopRead] read conn:%s->%s ETIMEDOUT", c.LocalAddr().String(), c.RemoteAddr().String())
+                    continue
+                }
             }
             logkit.Errorf("[loopRead] read conn:%s->%s error %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.readErr.Error())
             return
@@ -246,7 +252,7 @@ func (c *Conn) Read(b []byte) (n int, err error) {
         time.Sleep(100 * time.Millisecond)
         if len(c.readBuf) == 0 && c.readErr != nil {
             if operr, ok := c.readErr.(*net.OpError); ok {
-                if operr.Err == syscall.ETIMEDOUT {
+                if operr.Err != nil && operr.Err == syscall.ETIMEDOUT {
                     logkit.Noticef("[Read] read error ETIMEOUT")
                     continue
                 }

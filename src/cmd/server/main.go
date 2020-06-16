@@ -215,7 +215,7 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
         }
         if err != nil && err != pool.ErrInterrupt {
             if operr, ok := err.(*net.OpError); ok {
-                if operr.Op != "read" {
+                if operr.Op != "write" {
                     logkit.Errorf("[ServerCopy] src:%s --> dst:%s read error %s", src.RemoteAddr().String(), dst.RemoteAddr().String(), err.Error())
                     return
                 }
@@ -223,7 +223,7 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
         }
         
         // 主动关闭外端连接 防止连接泄漏
-        defer dst.Close()
+        defer dst.SetReadDeadline(time.Now())
         
         // src io.EOF
         if err == nil || src.IsClose() {
