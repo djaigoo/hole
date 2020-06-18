@@ -246,6 +246,7 @@ func (p *ConnPool) Get() (*Conn, error) {
         
         // 检测空闲连接是否过期
         if p.isStaleConn(cn) {
+            atomic.AddUint32(&p.stats.StaleConns, 1)
             _ = p.CloseConn(cn)
             continue
         }

@@ -7,6 +7,7 @@ import (
     "io"
     "net"
     "os"
+    "sync"
     "sync/atomic"
     "syscall"
     "time"
@@ -91,10 +92,12 @@ type Content struct {
 }
 
 type Conn struct {
-    conn    net.Conn
-    status  cmd
-    readBuf []byte
-    readErr error
+    conn   net.Conn
+    status cmd
+    
+    readBuf   []byte
+    readErr   error
+    readMutex sync.Mutex
     
     sendInterruptFlag int32
     
@@ -179,7 +182,7 @@ func (c *Conn) read() (err error) {
     }
     command := cmd(head[1])
     if command != TransHeartbeat && command != Transing {
-        logkit.Warnf("[read] %s from %s -> %s", command, c.conn.RemoteAddr().String(), c.conn.LocalAddr().String())
+        logkit.Warnf("[read] %s from %s -> %s status %s", command, c.conn.RemoteAddr().String(), c.conn.LocalAddr().String(), c.status)
     }
     switch command {
     case TransHeartbeat:
@@ -199,7 +202,9 @@ func (c *Conn) read() (err error) {
             if err != nil {
                 return err
             }
+            c.readMutex.Lock()
             c.readBuf = append(c.readBuf, tmp[:n]...)
+            c.readMutex.Unlock()
             nn += n
         }
         return nil
@@ -264,6 +269,8 @@ func (c *Conn) Read(b []byte) (n int, err error) {
         }
     }
     
+    c.readMutex.Lock()
+    defer c.readMutex.Unlock()
     if len(c.readBuf) > len(b) {
         copy(b, c.readBuf[:len(b)])
         c.readBuf = c.readBuf[len(b):]
@@ -422,7 +429,9 @@ func (c *Conn) IsInterrupt() bool {
 
 func (c *Conn) ClearReadBuffer() {
     logkit.Alertf("[ClearReadBuffer] cur read buffer len %d", len(c.readBuf))
+    c.readMutex.Lock()
     c.readBuf = make([]byte, 0, 2048)
+    c.readMutex.Unlock()
 }
 
 // 重置连接
