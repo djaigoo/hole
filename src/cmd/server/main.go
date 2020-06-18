@@ -162,6 +162,17 @@ func handle(conn *pool.Conn) (err error) {
     } else if attr.Command == socks5.Udp {
         if !conf.StartUDP {
             // TODO UDP is not supported temporarily
+            logkit.Warnf("UDP is not supported temporarily")
+            // 回收连接
+            for !conn.IsInterrupt() {
+                err = conn.Interrupt(10 * time.Second)
+                if err != nil {
+                    logkit.Errorf("[handle] send interrupt conn:%s error %s", conn.RemoteAddr().String(), err.Error())
+                    return
+                }
+                time.Sleep(1 * time.Second)
+            }
+            close = false
             return
         }
         host := attr.GetHost()
