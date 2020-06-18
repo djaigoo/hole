@@ -256,17 +256,10 @@ func (c *Conn) read() (err error) {
 func (c *Conn) Read(b []byte) (n int, err error) {
     // logkit.Infof("call Read cur:%s->%s status %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.status)
     for len(c.readBuf) == 0 {
-        // 防止TransInterrupt后还有数据
-        time.Sleep(100 * time.Millisecond)
-        if len(c.readBuf) == 0 && c.readErr != nil {
-            // if operr, ok := c.readErr.(*net.OpError); ok {
-            //     if operr.Err != nil && operr.Err == syscall.ETIMEDOUT {
-            //         logkit.Noticef("[Read] read error ETIMEDOUT")
-            //         continue
-            //     }
-            // }
+        if c.readErr != nil {
             return 0, c.readErr
         }
+        time.Sleep(100 * time.Millisecond)
     }
     
     c.readMutex.Lock()
@@ -289,9 +282,9 @@ func (c *Conn) Write(b []byte) (n int, err error) {
         return 0, ErrClosed
     }
     // 模拟写入已断开连接
-    // if c.IsInterrupt() {
-    //     return 0, ErrInterrupt
-    // }
+    if c.IsInterrupt() {
+        return 0, ErrInterrupt
+    }
     l := len(b)
     ldata := make([]byte, 4)
     binary.BigEndian.PutUint32(ldata, uint32(l))
@@ -352,9 +345,9 @@ func (c *Conn) interrupt() error {
     return nil
 }
 
-func (c *Conn) Interrupt(timeout time.Duration) error {
+func (c *Conn) Interrupt(timeout time.Duration) (err error) {
     for !c.IsInterrupt() {
-        err := c.interrupt()
+        err = c.interrupt()
         if err != nil {
             return err
         }
@@ -428,10 +421,10 @@ func (c *Conn) IsInterrupt() bool {
 }
 
 func (c *Conn) ClearReadBuffer() {
-    logkit.Alertf("[ClearReadBuffer] cur read buffer len %d", len(c.readBuf))
     c.readMutex.Lock()
+    defer c.readMutex.Unlock()
+    logkit.Alertf("[ClearReadBuffer] cur read buffer len %d", len(c.readBuf))
     c.readBuf = make([]byte, 0, 2048)
-    c.readMutex.Unlock()
 }
 
 // 重置连接
