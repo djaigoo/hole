@@ -282,9 +282,9 @@ func (c *Conn) Write(b []byte) (n int, err error) {
         return 0, ErrClosed
     }
     // 模拟写入已断开连接
-    if c.IsInterrupt() {
-        return 0, ErrInterrupt
-    }
+    // if c.IsInterrupt() {
+    //     return 0, ErrInterrupt
+    // }
     l := len(b)
     ldata := make([]byte, 4)
     binary.BigEndian.PutUint32(ldata, uint32(l))

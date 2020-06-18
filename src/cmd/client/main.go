@@ -340,7 +340,11 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
     wg := new(sync.WaitGroup)
     wg.Add(2)
     go func() {
-        defer wg.Done()
+        defer func() {
+            // 主动关闭外端连接 防止连接不释放
+            // src.SetReadDeadline(time.Now())
+            wg.Done()
+        }()
         n1, err := connect.Copy(dst, src)
         dst.AddWriteBytes(n1)
         if err != nil {
@@ -384,7 +388,11 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
     }()
     
     go func() {
-        defer wg.Done()
+        defer func() {
+            // 主动关闭外端连接 防止连接不释放
+            src.SetReadDeadline(time.Now())
+            wg.Done()
+        }()
         n2, err := connect.Copy(src, dst)
         dst.AddReadBytes(n2)
         if err != nil {
@@ -401,9 +409,6 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
                 }
             }
         }
-        
-        // 主动关闭外端连接 防止连接不释放
-        defer src.SetReadDeadline(time.Now())
         
         if err == nil || dst.IsClose() {
             logkit.Noticef("[ClientCopy] dst:%s is closed status:%s", dst.LocalAddr().String(), dst.Status())

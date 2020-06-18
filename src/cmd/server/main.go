@@ -206,7 +206,11 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
     wg := new(sync.WaitGroup)
     wg.Add(2)
     go func() {
-        defer wg.Done()
+        defer func() {
+            // 主动关闭外端连接 防止连接泄漏
+            dst.SetReadDeadline(time.Now())
+            wg.Done()
+        }()
         n1, err := connect.Copy(dst, src)
         if err != nil {
             logkit.Infof("[ServerCopy] src:%s --> dst:%s write over %d byte error %s", src.RemoteAddr().String(), dst.RemoteAddr().String(), n1, err.Error())
@@ -221,9 +225,6 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
                 }
             }
         }
-        
-        // 主动关闭外端连接 防止连接泄漏
-        defer dst.SetReadDeadline(time.Now())
         
         // src io.EOF
         if err == nil || src.IsClose() {
@@ -243,7 +244,11 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
     }()
     
     go func() {
-        defer wg.Done()
+        defer func() {
+            // 主动关闭外端连接 防止连接泄漏
+            // dst.SetReadDeadline(time.Now())
+            wg.Done()
+        }()
         n2, err := connect.Copy(src, dst)
         if err != nil {
             logkit.Infof("[ServerCopy] dst:%s --> src:%s write over %d byte error %s", dst.RemoteAddr().String(), src.RemoteAddr().String(), n2, err.Error())
