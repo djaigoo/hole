@@ -154,6 +154,7 @@ func handle(conn *pool.Conn) (err error) {
             }
             close = false
             conn.Reset()
+            logkit.Noticef("[handle] Recycle conn %s", conn.RemoteAddr().String())
             go handle(conn)
             return
         }
@@ -170,6 +171,7 @@ func handle(conn *pool.Conn) (err error) {
             }
             close = false
             conn.Reset()
+            logkit.Noticef("[handle] Recycle conn %s", conn.RemoteAddr().String())
             go handle(conn)
             return
         }
