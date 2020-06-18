@@ -147,15 +147,14 @@ func handle(conn *pool.Conn) (err error) {
                 logkit.Errorf("[handle] error connecting to: host %s, error %s", host, err.Error())
             }
             // 回收连接
-            for !conn.IsInterrupt() {
-                err = conn.Interrupt(10 * time.Second)
-                if err != nil {
-                    logkit.Errorf("[handle] send interrupt conn:%s error %s", conn.RemoteAddr().String(), err.Error())
-                    return
-                }
-                time.Sleep(1 * time.Second)
+            err = conn.Interrupt(10 * time.Second)
+            if err != nil {
+                logkit.Errorf("[handle] send interrupt conn:%s error %s", conn.RemoteAddr().String(), err.Error())
+                return
             }
             close = false
+            conn.Reset()
+            go handle(conn)
             return
         }
         logkit.Debugf("[handle] conn %s get tcp remote %s --> %s", conn.RemoteAddr().String(), remote.LocalAddr().String(), remote.RemoteAddr().String())
@@ -164,15 +163,14 @@ func handle(conn *pool.Conn) (err error) {
             // TODO UDP is not supported temporarily
             logkit.Warnf("UDP is not supported temporarily")
             // 回收连接
-            for !conn.IsInterrupt() {
-                err = conn.Interrupt(10 * time.Second)
-                if err != nil {
-                    logkit.Errorf("[handle] send interrupt conn:%s error %s", conn.RemoteAddr().String(), err.Error())
-                    return
-                }
-                time.Sleep(1 * time.Second)
+            err = conn.Interrupt(10 * time.Second)
+            if err != nil {
+                logkit.Errorf("[handle] send interrupt conn:%s error %s", conn.RemoteAddr().String(), err.Error())
+                return
             }
             close = false
+            conn.Reset()
+            go handle(conn)
             return
         }
         host := attr.GetHost()
@@ -243,13 +241,10 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
             return
         }
         
-        for !src.IsInterrupt() {
-            err = src.Interrupt(10 * time.Second)
-            if err != nil {
-                logkit.Errorf("[ServerCopy] src:%s send interrupt error %s", src.RemoteAddr().String(), err.Error())
-                return
-            }
-            time.Sleep(1 * time.Second)
+        err = src.Interrupt(10 * time.Second)
+        if err != nil {
+            logkit.Errorf("[ServerCopy] src:%s send interrupt error %s", src.RemoteAddr().String(), err.Error())
+            return
         }
         active1 = true
     }()
@@ -281,13 +276,10 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
             return
         }
         
-        for !src.IsInterrupt() {
-            err = src.Interrupt(10 * time.Second)
-            if err != nil {
-                logkit.Errorf("[ServerCopy] dst:%s --> src:%s send interrupt error %s", dst.RemoteAddr().String(), src.RemoteAddr().String(), err.Error())
-                return
-            }
-            time.Sleep(1 * time.Second)
+        err = src.Interrupt(10 * time.Second)
+        if err != nil {
+            logkit.Errorf("[ServerCopy] dst:%s --> src:%s send interrupt error %s", dst.RemoteAddr().String(), src.RemoteAddr().String(), err.Error())
+            return
         }
         active2 = true
     }()
@@ -295,9 +287,9 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
     
     if active1 && active2 {
         logkit.Noticef("[ServerCopy] Recycle conn %s", src.RemoteAddr().String())
+        close = false
         src.Reset()
         go handle(src)
-        close = false
     } else {
         logkit.Noticef("[ServerCopy] Remove conn %s active1:%v active2:%v", src.RemoteAddr().String(), active1, active2)
         close = true

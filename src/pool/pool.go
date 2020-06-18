@@ -421,7 +421,7 @@ func (p *ConnPool) Filter(fn func(*Conn) bool) error {
 func (p *ConnPool) Close() error {
     defer func() {
         logkit.Noticef("[Pool] SUM IN %d (%f MB) SUM OUT %d (%f MB)", p.inSize,
-            float64(p.inSize/(1024*1024)), p.outSize, float64(p.outSize/(1024*1024)))
+            float64(p.inSize)/(1024*1024), p.outSize, float64(p.outSize)/(1024*1024))
     }()
     
     if !atomic.CompareAndSwapUint32(&p._closed, 0, 1) {

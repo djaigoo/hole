@@ -327,7 +327,7 @@ func (c *Conn) Heartbeat() error {
     }
 }
 
-func (c *Conn) Interrupt(timeout time.Duration) error {
+func (c *Conn) interrupt() error {
     if c.IsInterrupt() {
         return nil
     }
@@ -342,6 +342,17 @@ func (c *Conn) Interrupt(timeout time.Duration) error {
         return err
     }
     atomic.AddInt32(&c.sendInterruptFlag, 1)
+    return nil
+}
+
+func (c *Conn) Interrupt(timeout time.Duration) error {
+    for !c.IsInterrupt() {
+        err := c.interrupt()
+        if err != nil {
+            return err
+        }
+        time.Sleep(1 * time.Second)
+    }
     return nil
 }
 

@@ -375,14 +375,11 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
             return
         }
         
-        for !dst.IsInterrupt() {
-            err = dst.Interrupt(10 * time.Second)
-            if err != nil {
-                logkit.Errorf("[ClientCopy] src:%s --> dst:%s send interrupt status %s error %s", src.RemoteAddr().String(), dst.LocalAddr().String(), dst.Status(), err.Error())
-                back1 = sErr
-                return
-            }
-            time.Sleep(1 * time.Second)
+        err = dst.Interrupt(10 * time.Second)
+        if err != nil {
+            logkit.Errorf("[ClientCopy] src:%s --> dst:%s send interrupt status %s error %s", src.RemoteAddr().String(), dst.LocalAddr().String(), dst.Status(), err.Error())
+            back1 = sErr
+            return
         }
         back1 = sActive
     }()
@@ -422,14 +419,11 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
             return
         }
         
-        for !dst.IsInterrupt() {
-            err = dst.Interrupt(10 * time.Second)
-            if err != nil {
-                logkit.Errorf("[ClientCopy] dst:%s --> src:%s send interrupt status %s error %s", dst.LocalAddr().String(), src.RemoteAddr().String(), dst.Status(), err.Error())
-                back2 = sErr
-                return
-            }
-            time.Sleep(1 * time.Second)
+        err = dst.Interrupt(10 * time.Second)
+        if err != nil {
+            logkit.Errorf("[ClientCopy] dst:%s --> src:%s send interrupt status %s error %s", dst.LocalAddr().String(), src.RemoteAddr().String(), dst.Status(), err.Error())
+            back2 = sErr
+            return
         }
         
         back2 = sActive
