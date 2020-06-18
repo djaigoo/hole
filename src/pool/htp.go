@@ -6,6 +6,7 @@ import (
     "github.com/djaigoo/logkit"
     "io"
     "net"
+    "os"
     "sync/atomic"
     "syscall"
     "time"
@@ -144,9 +145,11 @@ func (c *Conn) loopRead() {
                 return
             }
             if operr, ok := c.readErr.(*net.OpError); ok {
-                if operr.Err != nil && operr.Err == syscall.ETIMEDOUT {
-                    logkit.Debugf("[loopRead] read conn:%s->%s ETIMEDOUT", c.LocalAddr().String(), c.RemoteAddr().String())
-                    continue
+                if operr.Op == "read" && operr.Err != nil {
+                    if syserr, ok := operr.Err.(*os.SyscallError); ok && syserr.Syscall == "read" && syserr.Err == syscall.ETIMEDOUT {
+                        logkit.Debugf("[loopRead] read conn:%s->%s ETIMEDOUT", c.LocalAddr().String(), c.RemoteAddr().String())
+                        continue
+                    }
                 }
             }
             logkit.Errorf("[loopRead] read conn:%s->%s error %s", c.LocalAddr().String(), c.RemoteAddr().String(), c.readErr.Error())
@@ -251,12 +254,12 @@ func (c *Conn) Read(b []byte) (n int, err error) {
         // 防止TransInterrupt后还有数据
         time.Sleep(100 * time.Millisecond)
         if len(c.readBuf) == 0 && c.readErr != nil {
-            if operr, ok := c.readErr.(*net.OpError); ok {
-                if operr.Err != nil && operr.Err == syscall.ETIMEDOUT {
-                    logkit.Noticef("[Read] read error ETIMEOUT")
-                    continue
-                }
-            }
+            // if operr, ok := c.readErr.(*net.OpError); ok {
+            //     if operr.Err != nil && operr.Err == syscall.ETIMEDOUT {
+            //         logkit.Noticef("[Read] read error ETIMEDOUT")
+            //         continue
+            //     }
+            // }
             return 0, c.readErr
         }
     }

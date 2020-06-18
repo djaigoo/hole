@@ -162,6 +162,7 @@ func handleUDP(conn *net.UDPConn, addr *net.UDPAddr, data []byte) {
     atyp := data[site]
     site++
     var host string
+    var port []byte
     switch atyp {
     case socks5.IPv4:
         if n < site+6 {
@@ -169,9 +170,9 @@ func handleUDP(conn *net.UDPConn, addr *net.UDPAddr, data []byte) {
         }
         addr := data[site : site+4]
         site += 4
-        port := data[site : site+2]
+        port = data[site : site+2]
         site += 2
-        host = net.IP(addr).String() + ":" + strconv.Itoa(int(binary.BigEndian.Uint16(port)))
+        host = net.IP(addr).String()
     case socks5.Domain:
         if n < site+1 {
             return
@@ -180,21 +181,22 @@ func handleUDP(conn *net.UDPConn, addr *net.UDPAddr, data []byte) {
         site++
         addr := data[site : site+int(l)]
         site += int(l)
-        port := data[site : site+2]
+        port = data[site : site+2]
         site += 2
-        host = string(addr) + ":" + strconv.Itoa(int(binary.BigEndian.Uint16(port)))
+        host = string(addr)
     case socks5.IPv6:
         if n < site+18 {
             return
         }
         addr := data[site : site+16]
         site += 16
-        port := data[site : site+2]
+        port = data[site : site+2]
         site += 2
-        host = net.IP(addr).String() + ":" + strconv.Itoa(int(binary.BigEndian.Uint16(port)))
+        host = net.IP(addr).String()
     }
+    host += ":" + strconv.Itoa(int(binary.BigEndian.Uint16(port)))
     
-    logkit.Debugf("[handleUDP] dial udp to host %s", host)
+    logkit.Debugf("[handleUDP] conn %s dial udp to host %s site %d data len %d", addr.String(), host, site, n)
     raddr, err := net.ResolveUDPAddr("udp", host)
     if err != nil {
         logkit.Errorf("[handleUDP] ResolveUDPAddr error %s", err.Error())
@@ -208,6 +210,7 @@ func handleUDP(conn *net.UDPConn, addr *net.UDPAddr, data []byte) {
     }
     defer uconn.Close()
     uconn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+    // logkit.Alertf("uconn:%s->%s write data %#v", uconn.LocalAddr().String(), uconn.RemoteAddr().String(), data[site:])
     n, err = uconn.Write(data[site:])
     if err != nil {
         logkit.Errorf("[handleUDP] write uconn:%s->%s error %s", uconn.LocalAddr().String(), uconn.RemoteAddr().String(), err.Error())
@@ -215,7 +218,7 @@ func handleUDP(conn *net.UDPConn, addr *net.UDPAddr, data []byte) {
     }
     msg := make([]byte, 2048)
     uconn.SetReadDeadline(time.Now().Add(10 * time.Second))
-    n, err = uconn.Read(msg)
+    n, _, err = uconn.ReadFrom(msg)
     if err != nil {
         logkit.Errorf("[handleUDP] read uconn:%s->%s error %s", uconn.LocalAddr().String(), uconn.RemoteAddr().String(), err.Error())
         return
@@ -223,6 +226,7 @@ func handleUDP(conn *net.UDPConn, addr *net.UDPAddr, data []byte) {
     logkit.Debugf("[handleUDP] write to udp %s --> %s %d byte", addr.String(), raddr.String(), n)
     
     conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+    // logkit.Alertf("conn:%s->%s write data %#v", uconn.LocalAddr().String(), uconn.RemoteAddr().String(), append(data[:site], msg[:n]...))
     _, err = conn.WriteToUDP(append(data[:site], msg[:n]...), addr)
     if err != nil {
         logkit.Errorf("[handleUDP] write udp conn:%s->%s error %s", conn.LocalAddr().String(), conn.RemoteAddr().String(), err.Error())

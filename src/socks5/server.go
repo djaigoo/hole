@@ -1,6 +1,7 @@
 package socks5
 
 import (
+    "bytes"
     "encoding/binary"
     "github.com/djaigoo/logkit"
     "github.com/pkg/errors"
@@ -146,9 +147,18 @@ func (a *Attr) step4(conn net.Conn) error {
     }
     if a.Command == Connect {
         logkit.Warnf("[Handshake] send connect %s --> %s", conn.RemoteAddr().String(), conn.LocalAddr().String())
-        _, err = conn.Write([]byte{VER, Succeeded, 0, IPv4, 127, 0, 0, 1, 0x04, 0x3e})
     } else {
         logkit.Warnf("[Handshake] send udp %s --> %s", conn.RemoteAddr().String(), conn.LocalAddr().String())
+    }
+    if addr, ok := conn.LocalAddr().(*net.TCPAddr); ok {
+        buf := bytes.NewBuffer(nil)
+        buf.Write([]byte{VER, Succeeded, 0, IPv4})
+        buf.Write(addr.IP.To4())
+        tmp := make([]byte, 2)
+        binary.BigEndian.PutUint16(tmp, uint16(addr.Port))
+        buf.Write(tmp)
+        _, err = conn.Write(buf.Bytes())
+    } else {
         _, err = conn.Write([]byte{VER, Succeeded, 0, IPv4, 127, 0, 0, 1, 0x04, 0x3e})
     }
     return err

@@ -250,6 +250,7 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
         } else {
             logkit.Infof("[ServerCopy] dst:%s --> src:%s write over %d byte", dst.RemoteAddr().String(), src.RemoteAddr().String(), n2)
         }
+        
         if err != nil && err != pool.ErrInterrupt {
             if operr, ok := err.(*net.OpError); ok {
                 if operr.Op == "write" {
@@ -263,6 +264,7 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
             logkit.Noticef("[ClientCopy] dst:%s --> %s status:%s", dst.LocalAddr().String(), dst.RemoteAddr().String(), src.Status())
             return
         }
+        
         for !src.IsInterrupt() {
             err = src.Interrupt(10 * time.Second)
             if err != nil {
