@@ -431,6 +431,7 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
     wg.Wait()
     
     if back1 == sActive && back2 == sActive {
+        logkit.Noticef("[ClientCopy] Recycle conn %s", src.LocalAddr().String())
         pool.Put(dst)
     } else {
         logkit.Debugf("[ClientCopy] Remove conn %s --> %s back1:%v back2:%v", dst.LocalAddr().String(), dst.RemoteAddr().String(), back1, back2)
@@ -440,6 +441,6 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
             pool.Remove(dst, pool.RReadErr)
         }
     }
-    logkit.Infof("[ClientCopy] OVER")
+    logkit.Infof("[ClientCopy] OVER conn src:%s --> dst:%s", src.RemoteAddr().String(), dst.LocalAddr().String())
     return
 }

@@ -206,7 +206,7 @@ func handle(conn *pool.Conn) (err error) {
     logkit.Debugf("[handle] get remote %s", remote.RemoteAddr().String())
     
     _, _, close = ServerCopy(remote, conn)
-    logkit.Debugf("[handle] ServerCopy over")
+    // logkit.Debugf("[handle] ServerCopy over")
     return
 }
 
@@ -287,6 +287,7 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
     }()
     wg.Wait()
     
+    logkit.Debugf("[ServerCopy] conn:%s active1:%v active2:%v", src.RemoteAddr().String(), active1, active2)
     if active1 && active2 {
         logkit.Noticef("[ServerCopy] Recycle conn %s", src.RemoteAddr().String())
         close = false
@@ -296,6 +297,6 @@ func ServerCopy(dst net.Conn, src *pool.Conn) (n1, n2 int64, close bool) {
         logkit.Noticef("[ServerCopy] Remove conn %s active1:%v active2:%v", src.RemoteAddr().String(), active1, active2)
         close = true
     }
-    logkit.Infof("[ServerCopy] OVER")
+    logkit.Infof("[ServerCopy] OVER src:%s --> dst:%s", src.RemoteAddr().String(), dst.RemoteAddr().String())
     return
 }
