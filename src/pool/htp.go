@@ -346,12 +346,21 @@ func (c *Conn) interrupt() error {
 }
 
 func (c *Conn) Interrupt(timeout time.Duration) (err error) {
+    t := time.NewTimer(timeout)
     for !c.IsInterrupt() {
-        err = c.interrupt()
-        if err != nil {
-            return err
+        select {
+        case <-t.C:
+            c.status = TransClose
+            c.closed = true
+            c.Close()
+            return ErrClosed
+        default:
+            err = c.interrupt()
+            if err != nil {
+                return err
+            }
+            time.Sleep(1 * time.Second)
         }
-        time.Sleep(1 * time.Second)
     }
     return nil
 }
