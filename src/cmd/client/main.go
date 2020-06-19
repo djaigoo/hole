@@ -431,7 +431,7 @@ func ClientCopy(dst *pool.Conn, src net.Conn) (n1, n2 int64) {
     wg.Wait()
     
     if back1 == sActive && back2 == sActive {
-        logkit.Noticef("[ClientCopy] Recycle conn %s", src.LocalAddr().String())
+        logkit.Noticef("[ClientCopy] Recycle conn %s", src.RemoteAddr().String())
         pool.Put(dst)
     } else {
         logkit.Debugf("[ClientCopy] Remove conn %s --> %s back1:%v back2:%v", dst.LocalAddr().String(), dst.RemoteAddr().String(), back1, back2)

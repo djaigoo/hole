@@ -360,16 +360,16 @@ func (c *Conn) CloseWrite() error {
     if c.IsClose() {
         return nil
     }
-    err := c.sendCmd(TransCloseWrite)
-    return err
+    c.sendCmd(TransCloseWrite)
+    return c.conn.Close()
 }
 
 func (c *Conn) Close() error {
     if c.IsClose() {
         return nil
     }
-    err := c.sendCmd(TransClose)
-    return err
+    c.sendCmd(TransClose)
+    return c.conn.Close()
 }
 
 func (c *Conn) LocalAddr() net.Addr {

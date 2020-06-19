@@ -37,13 +37,16 @@ type Stats struct {
     // 过期连接数
     StaleConns uint32 // number of stale connections removed from the pool
     
+    // 拨号失败连接数
+    DialConns uint32
+    
     // 移除连接数
     CloseConns uint32
 }
 
 func (s *Stats) String() string {
-    return fmt.Sprintf("Hits:%d Misses:%d Timeouts:%d TotalConns:%d IdleConns:%d StaleConns:%d CloseConns:%d DiffConns:%d",
-        s.Hits, s.Misses, s.Timeouts, s.TotalConns, s.IdleConns, s.StaleConns, s.CloseConns, s.Misses-s.CloseConns-s.TotalConns)
+    return fmt.Sprintf("Hits:%d Misses:%d Timeouts:%d TotalConns:%d IdleConns:%d StaleConns:%d CloseConns:%d DialConns:%d DiffConns:%d",
+        s.Hits, s.Misses, s.Timeouts, s.TotalConns, s.IdleConns, s.StaleConns, s.CloseConns, s.DialConns, s.Misses-s.CloseConns-s.TotalConns)
 }
 
 type Pooler interface {
@@ -180,6 +183,7 @@ func (p *ConnPool) newConn(pooled bool) (*Conn, error) {
     
     netConn, err := p.opt.Dialer()
     if err != nil {
+        atomic.AddUint32(&p.stats.DialConns, 1)
         p.setLastDialError(err)
         if atomic.AddUint32(&p.dialErrorsNum, 1) == uint32(p.opt.PoolSize) {
             go p.tryDial()
@@ -200,6 +204,7 @@ func (p *ConnPool) tryDial() {
         
         conn, err := p.opt.Dialer()
         if err != nil {
+            atomic.AddUint32(&p.stats.DialConns, 1)
             p.setLastDialError(err)
             time.Sleep(time.Second)
             continue
@@ -530,14 +535,18 @@ func Close() error {
 }
 
 func Start(addr string, size int, config *tls.Config) {
+    dial := &net.Dialer{
+        Timeout:   5 * time.Second,
+        KeepAlive: 1 * time.Minute,
+    }
     opt := &Options{
         Dialer: func() (*Conn, error) {
             var conn net.Conn
             var err error
             if config == nil {
-                conn, err = net.DialTimeout("tcp", addr, 5*time.Second)
+                conn, err = dial.Dial("tcp", addr)
             } else {
-                conn, err = tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 1 * time.Minute}, "tcp", addr, config)
+                conn, err = tls.DialWithDialer(dial, "tcp", addr, config)
             }
             if err != nil {
                 logkit.Errorf("[Pool] Dialer error %s", err.Error())
