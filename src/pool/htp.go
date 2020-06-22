@@ -222,21 +222,18 @@ func (c *Conn) read() (err error) {
         c.status = TransInterruptAck
         return ErrInterrupt
     case TransClose:
-        c.closed = true
         c.status = TransClose
         _, err = c.conn.Write([]byte{VER, byte(TransCloseAck), 0, 0, 0, 0})
         if err != nil {
             return err
         }
-        c.conn.Close()
+        c.close()
         return io.EOF
     case TransCloseAck:
-        c.closed = true
         c.status = TransCloseAck
-        c.conn.Close()
+        c.close()
         return io.EOF
     case TransCloseWrite:
-        c.closed = true
         c.status = TransCloseWrite
         _, err = c.conn.Write([]byte{VER, byte(TransCloseAck), 0, 0, 0, 0})
         if err != nil {
@@ -245,7 +242,7 @@ func (c *Conn) read() (err error) {
         if wconn, ok := c.conn.(closeWriter); ok {
             return wconn.CloseWrite()
         }
-        c.conn.Close()
+        c.close()
         return io.EOF
     default:
         logkit.Errorf("[read] invalid cmd")
@@ -351,8 +348,7 @@ func (c *Conn) Interrupt(timeout time.Duration) (err error) {
         select {
         case <-t.C:
             c.status = TransClose
-            c.closed = true
-            c.Close()
+            c.close()
             return ErrClosed
         default:
             err = c.interrupt()
@@ -365,12 +361,17 @@ func (c *Conn) Interrupt(timeout time.Duration) (err error) {
     return nil
 }
 
+func (c *Conn) close() error {
+    c.closed = true
+    return c.conn.Close()
+}
+
 func (c *Conn) CloseWrite() error {
     if c.IsClose() {
         return nil
     }
     c.sendCmd(TransCloseWrite)
-    return c.conn.Close()
+    return c.close()
 }
 
 func (c *Conn) Close() error {
@@ -378,7 +379,7 @@ func (c *Conn) Close() error {
         return nil
     }
     c.sendCmd(TransClose)
-    return c.conn.Close()
+    return c.close()
 }
 
 func (c *Conn) LocalAddr() net.Addr {
