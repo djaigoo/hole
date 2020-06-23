@@ -426,8 +426,10 @@ func (p *ConnPool) Filter(fn func(*Conn) bool) error {
 // Close 关闭连接池
 func (p *ConnPool) Close() error {
     defer func() {
-        logkit.Noticef("[Pool] SUM IN %d (%f MB) SUM OUT %d (%f MB)", p.inSize,
+        str := fmt.Sprintf("[Pool] SUM IN %d (%f MB) SUM OUT %d (%f MB)", p.inSize,
             float64(p.inSize)/(1024*1024), p.outSize, float64(p.outSize)/(1024*1024))
+        logkit.Noticef(str)
+        fmt.Println(str)
     }()
     
     if !atomic.CompareAndSwapUint32(&p._closed, 0, 1) {

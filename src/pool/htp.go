@@ -138,6 +138,9 @@ func (c *Conn) loopRead() {
         c.cancel()
     }()
     for {
+        if c.IsClose() {
+            return
+        }
         c.readErr = c.read()
         if c.readErr != nil {
             if c.readErr == ErrInterrupt {
@@ -151,7 +154,7 @@ func (c *Conn) loopRead() {
                 if operr.Op == "read" && operr.Err != nil {
                     if syserr, ok := operr.Err.(*os.SyscallError); ok && syserr.Syscall == "read" && syserr.Err == syscall.ETIMEDOUT {
                         logkit.Debugf("[loopRead] read conn:%s->%s ETIMEDOUT", c.LocalAddr().String(), c.RemoteAddr().String())
-                        continue
+                        return
                     }
                 }
             }
@@ -222,7 +225,6 @@ func (c *Conn) read() (err error) {
         c.status = TransInterruptAck
         return ErrInterrupt
     case TransClose:
-        c.status = TransClose
         _, err = c.conn.Write([]byte{VER, byte(TransCloseAck), 0, 0, 0, 0})
         if err != nil {
             return err
@@ -230,11 +232,10 @@ func (c *Conn) read() (err error) {
         c.close()
         return io.EOF
     case TransCloseAck:
-        c.status = TransCloseAck
         c.close()
+        c.status = TransCloseAck
         return io.EOF
     case TransCloseWrite:
-        c.status = TransCloseWrite
         _, err = c.conn.Write([]byte{VER, byte(TransCloseAck), 0, 0, 0, 0})
         if err != nil {
             return err
@@ -243,6 +244,7 @@ func (c *Conn) read() (err error) {
             return wconn.CloseWrite()
         }
         c.close()
+        c.status = TransCloseWrite
         return io.EOF
     default:
         logkit.Errorf("[read] invalid cmd")
@@ -347,7 +349,6 @@ func (c *Conn) Interrupt(timeout time.Duration) (err error) {
     for !c.IsInterrupt() {
         select {
         case <-t.C:
-            c.status = TransClose
             c.close()
             return ErrClosed
         default:
@@ -363,6 +364,7 @@ func (c *Conn) Interrupt(timeout time.Duration) (err error) {
 
 func (c *Conn) close() error {
     c.closed = true
+    c.status = TransClose
     return c.conn.Close()
 }
 
@@ -370,16 +372,16 @@ func (c *Conn) CloseWrite() error {
     if c.IsClose() {
         return nil
     }
-    c.sendCmd(TransCloseWrite)
-    return c.close()
+    c.closed = true
+    return c.sendCmd(TransCloseWrite)
 }
 
 func (c *Conn) Close() error {
     if c.IsClose() {
         return nil
     }
-    c.sendCmd(TransClose)
-    return c.close()
+    c.closed = true
+    return c.sendCmd(TransClose)
 }
 
 func (c *Conn) LocalAddr() net.Addr {
