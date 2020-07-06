@@ -31,6 +31,7 @@ var (
     udp        bool
     psize      int
     mode       string
+    dtimeout   int // 拨号超时
 )
 
 func init() {
@@ -41,6 +42,7 @@ func init() {
     flag.BoolVar(&udp, "udp", false, "是否启动udp")
     flag.IntVar(&psize, "psize", 100, "连接池大小")
     flag.StringVar(&mode, "mode", "tls", "连接模式")
+    flag.IntVar(&dtimeout, "dtimeout", 10, "拨号超时")
     flag.Parse()
 }
 
@@ -91,7 +93,11 @@ func main() {
     }
     
     // start connect pool
-    pool.Start(addr, psize, config)
+    dial := &net.Dialer{
+        Timeout:   time.Duration(dtimeout) * time.Second,
+        KeepAlive: 1 * time.Minute,
+    }
+    pool.Start(dial, addr, psize, config)
     defer pool.Close()
     
     listener, err := net.Listen("tcp", ":"+strconv.Itoa(conf.LocalPort))
